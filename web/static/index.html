@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lord Books</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Drop overlay -->
+  <div id="drop-overlay" class="drop-overlay" hidden>
+    <div class="drop-content">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
+      <p>Solte para importar</p>
+    </div>
+  </div>
+
+  <!-- Upload progress (floating) -->
+  <div id="upload-progress" class="upload-progress" hidden>
+    <div class="upload-bar"><div id="upload-fill" class="upload-fill"></div></div>
+    <span id="upload-text" class="upload-text"></span>
+  </div>
+
+  <div class="app">
+    <div class="app-body">
+      <!-- Left Sidebar (Dark) -->
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <span class="brand-name">Lord Books</span>
+          <span class="brand-sub">sua biblioteca</span>
+        </div>
+
+        <nav class="sidebar-nav">
+          <div class="nav-heading">Colecao</div>
+          <button class="nav-item active" data-status="">
+            <span>Todos</span>
+            <span class="nav-count" id="count-all">0</span>
+          </button>
+          <button class="nav-item" data-status="want">
+            <span>Quero Ler</span>
+            <span class="nav-count" id="count-want">0</span>
+          </button>
+          <button class="nav-item" data-status="reading">
+            <span>Lendo</span>
+            <span class="nav-count" id="count-reading">0</span>
+          </button>
+          <button class="nav-item" data-status="read">
+            <span>Lido</span>
+            <span class="nav-count" id="count-read">0</span>
+          </button>
+        </nav>
+
+        <div class="nav-heading">Tags</div>
+        <div id="sidebar-tags" class="sidebar-tags"></div>
+        <div class="sidebar-tag-add">
+          <input id="tag-new-input" type="text" placeholder="Nova tag..." class="tag-new-input">
+          <button id="tag-new-btn" class="tag-new-btn" aria-label="Criar tag">+</button>
+        </div>
+
+        <div class="sidebar-footer">
+          <label class="sidebar-import" tabindex="0">
+            + Importar
+            <input id="file-input" type="file" accept=".epub,.pdf" multiple hidden>
+          </label>
+        </div>
+
+        <div class="sidebar-status">
+          <span class="dot dot-online"></span>
+          Servidor Ativo
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main">
+        <div class="toolbar">
+          <div class="search-wrap">
+            <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input id="search" type="search" placeholder="Buscar livros, autores...">
+          </div>
+          <label class="import-btn" tabindex="0">
+            + Importar
+            <input id="file-input-top" type="file" accept=".epub,.pdf" multiple hidden>
+          </label>
+        </div>
+
+        <!-- Catalog Header -->
+        <div class="catalog-header">
+          <span class="catalog-title">Catalogo</span>
+          <span class="catalog-count" id="catalog-count"></span>
+          <div class="catalog-sep"></div>
+          <div class="view-toggle">
+            <button id="view-grid" class="view-btn active">Capas</button>
+            <button id="view-list" class="view-btn">Lista</button>
+          </div>
+        </div>
+
+        <div class="catalog" id="catalog">
+          <div id="empty-state" class="empty-state" hidden>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+              <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+            </svg>
+            <p>Sua biblioteca esta vazia</p>
+            <p class="empty-hint">Arraste EPUBs ou PDFs para ca, ou clique em <strong>Importar</strong></p>
+          </div>
+
+          <div id="books-grid" class="books-grid"></div>
+          <ol id="books-list" class="books-list" hidden></ol>
+        </div>
+      </main>
+
+      <!-- Inspector (Right Panel) -->
+      <aside class="inspector" id="inspector" hidden>
+        <div class="inspector-header">
+          <span class="inspector-label">Detalhes do Livro</span>
+          <button id="inspector-close" class="inspector-close" aria-label="Fechar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="inspector-body">
+          <div class="inspector-cover" id="inspector-cover"></div>
+          <h2 id="inspector-title" class="inspector-title"></h2>
+          <p id="inspector-authors" class="inspector-authors"></p>
+          <div id="inspector-series" class="inspector-series" hidden></div>
+
+          <div class="section-heading">Tags</div>
+          <div class="inspector-tags" id="inspector-tags"></div>
+          <div class="inspector-tag-add">
+            <input id="inspector-tag-input" type="text" placeholder="Adicionar tag..." class="inspector-tag-input" list="tag-suggestions">
+            <datalist id="tag-suggestions"></datalist>
+          </div>
+
+          <div class="section-heading">Metadados</div>
+          <dl class="inspector-meta" id="inspector-meta"></dl>
+
+          <p id="inspector-desc" class="inspector-desc" hidden></p>
+
+          <div class="inspector-actions">
+            <select id="inspector-status" class="status-select"></select>
+            <button id="inspector-meta-search" class="action-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              Metadados
+            </button>
+            <a id="inspector-download" class="action-btn" download>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              Baixar
+            </a>
+            <button id="inspector-delete" class="action-btn action-btn--danger">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+              Remover
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Status Bar -->
+    <footer class="status-bar">
+      <div class="status-bar-left">
+        <span class="dot-sm"></span>
+        <span>Lord Books v0.1</span>
+      </div>
+      <div class="status-bar-right">
+        <span id="status-info"></span>
+        <button id="theme-toggle" class="theme-toggle" aria-label="Alternar tema"></button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Metadata search modal -->
+  <div id="meta-modal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="meta-modal-title">
+      <div class="modal-header">
+        <span id="meta-modal-title" class="modal-title">Buscar metadados</span>
+        <button id="meta-close" class="inspector-close" aria-label="Fechar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <form id="meta-form" class="meta-form">
+        <input id="meta-query" type="search" class="meta-input meta-input--grow" placeholder="Titulo e autor">
+        <button type="submit" class="meta-search-btn">Buscar</button>
+      </form>
+      <div id="meta-warnings" class="meta-warnings" hidden></div>
+      <div class="modal-body">
+        <ul id="meta-results" class="meta-results"></ul>
+        <div id="meta-compare" class="meta-compare">
+          <p class="meta-placeholder">Selecione um resultado para comparar com os dados atuais.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span id="meta-status" class="meta-status"></span>
+        <button id="meta-cancel" class="action-btn">Cancelar</button>
+        <button id="meta-apply" class="meta-apply-btn" disabled>Aplicar selecionados</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+# Binários
+/bin/
+/dist/
+/lordbooks
+*.exe
+
+# Dados locais (banco e biblioteca)
+*.db
+*.db-wal
+*.db-shm
+.lordbooks/
+
+# Livros e capas nunca entram no repositório
+*.epub
+*.pdf
+*.mobi
+*.azw3
+
+# Segredos e configuração local
+.env
+.env.*
+.claude/settings.local.json
+
+# Sistema e editores
+.DS_Store
+.idea/
+.vscode/
+*.swp
