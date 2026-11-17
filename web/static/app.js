@@ -20,7 +20,7 @@ const inspectorTags = $("#inspector-tags");
 const inspectorTagInput = $("#inspector-tag-input");
 const tagSuggestions = $("#tag-suggestions");
 
-let allBooks = [];
+const sortSelect = $("#sort-select");
 let books = [];
 let allTags = [];
 let viewMode = "grid";
@@ -49,6 +49,7 @@ function loadBooks() {
   if (q) params.set("q", q);
   if (currentFilter) params.set("status", currentFilter);
   if (currentTagFilter) params.set("tag_id", currentTagFilter);
+  params.set("sort", sortSelect.value);
 
   fetch("/api/books?" + params)
     .then((r) => r.json())
@@ -59,20 +60,16 @@ function loadBooks() {
 }
 
 function loadCounts() {
-  fetch("/api/books")
+  fetch("/api/stats")
     .then((r) => r.json())
-    .then((data) => {
-      allBooks = data.books || [];
-      const counts = { all: allBooks.length, want: 0, reading: 0, read: 0 };
-      for (const b of allBooks) {
-        if (counts[b.read_status] !== undefined) counts[b.read_status]++;
-      }
-      $("#count-all").textContent = counts.all;
-      $("#count-want").textContent = counts.want;
-      $("#count-reading").textContent = counts.reading;
-      $("#count-read").textContent = counts.read;
-      catalogCount.textContent = counts.all + (counts.all === 1 ? " volume" : " volumes");
-      $("#status-info").textContent = counts.all + (counts.all === 1 ? " volume" : " volumes");
+    .then((s) => {
+      $("#count-all").textContent = s.total;
+      $("#count-want").textContent = s.want;
+      $("#count-reading").textContent = s.reading;
+      $("#count-read").textContent = s.read;
+      const label = s.total + (s.total === 1 ? " volume" : " volumes");
+      catalogCount.textContent = label;
+      $("#status-info").textContent = label;
     });
 }
 
@@ -134,7 +131,12 @@ function renderList() {
       const sel = selectedBook && selectedBook.id === b.id ? " selected" : "";
       const fmt = (b.format || "epub").toUpperCase();
       const fmtClass = (b.format || "epub").toLowerCase();
-      const tags = (b.tags || []).map((t) => `<span class="list-tag">${esc(t)}</span>`).join("");
+      const allTags = b.tags || [];
+      const tags =
+        allTags.slice(0, 3).map((t) => `<span class="list-tag" title="${esc(t)}">${esc(t)}</span>`).join("") +
+        (allTags.length > 3
+          ? `<span class="list-tag list-tag--more" title="${esc(allTags.slice(3).join(", "))}">+${allTags.length - 3}</span>`
+          : "");
       const statusLabel = STATUS[b.read_status] || b.read_status;
       return `
       <li class="list-row${sel}" data-id="${b.id}">
@@ -160,6 +162,16 @@ function setView(mode) {
   viewListBtn.classList.toggle("active", mode === "list");
   render();
 }
+
+// ═══════════════════ Sort ═══════════════════
+try {
+  const savedSort = localStorage.getItem("lb-sort");
+  if (savedSort && sortSelect.querySelector(`option[value="${savedSort}"]`)) sortSelect.value = savedSort;
+} catch {}
+sortSelect.addEventListener("change", () => {
+  try { localStorage.setItem("lb-sort", sortSelect.value); } catch {}
+  loadBooks();
+});
 
 // ═══════════════════ Search ═══════════════════
 let searchTimer;
@@ -238,7 +250,8 @@ function closeInspector() {
 $("#inspector-close").addEventListener("click", closeInspector);
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (!metaModal.hidden) closeMetaModal();
+  if (!calibreModal.hidden) calibreModal.hidden = true;
+  else if (!metaModal.hidden) closeMetaModal();
   else if (!inspector.hidden) closeInspector();
 });
 
@@ -759,6 +772,137 @@ metaApply.addEventListener("click", () => {
       updateApplyState();
     });
 });
+
+// ═══════════════════ Calibre import ═══════════════════
+const calibreModal = $("#calibre-modal");
+const calibrePath = $("#calibre-path");
+const calibreStart = $("#calibre-start");
+const calibreProgressEl = $("#calibre-progress");
+const calibreFill = $("#calibre-fill");
+const calibreCounts = $("#calibre-counts");
+const calibreErrors = $("#calibre-errors");
+const calibreStatus = $("#calibre-status");
+let calibrePolling = false;
+
+$("#calibre-open").addEventListener("click", () => {
+  calibreModal.hidden = false;
+  calibreStatus.textContent = "";
+  calibreStatus.classList.remove("error");
+  fetch("/api/import/calibre")
+    .then((r) => r.json())
+    .then((data) => {
+      if (!calibrePath.value && data.default_path) calibrePath.value = data.default_path;
+      if (data.progress.running || data.progress.total) showCalibreProgress(data.progress);
+      if (data.progress.running) pollCalibre();
+      calibrePath.focus();
+    });
+});
+for (const id of ["#calibre-close", "#calibre-cancel"]) {
+  $(id).addEventListener("click", () => (calibreModal.hidden = true));
+}
+calibreModal.addEventListener("click", (e) => {
+  if (e.target === calibreModal) calibreModal.hidden = true;
+});
+calibrePath.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") calibreStart.click();
+});
+calibrePath.addEventListener("input", () => (calibrePathWarn.hidden = true));
+
+const calibreBrowse = $("#calibre-browse");
+const calibrePathWarn = $("#calibre-path-warn");
+const browseLabel = calibreBrowse.innerHTML;
+
+// The server opens the OS folder picker; the browser itself can't expose a folder path.
+calibreBrowse.addEventListener("click", () => {
+  calibreBrowse.disabled = true;
+  calibreBrowse.textContent = "Aguardando...";
+  calibrePathWarn.hidden = true;
+  fetch("/api/dialog/folder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start: calibrePath.value.trim() }),
+  })
+    .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then((res) => {
+      if (res.canceled) return;
+      calibrePath.value = res.path;
+      if (!res.is_calibre) {
+        calibrePathWarn.textContent = "Essa pasta nao tem metadata.db. Escolha a pasta raiz da biblioteca do Calibre.";
+        calibrePathWarn.hidden = false;
+      }
+    })
+    .catch((err) => {
+      calibrePathWarn.textContent = "Nao foi possivel abrir o seletor: " + err.message + ". Digite o caminho no campo.";
+      calibrePathWarn.hidden = false;
+    })
+    .finally(() => {
+      calibreBrowse.disabled = false;
+      calibreBrowse.innerHTML = browseLabel;
+    });
+});
+
+calibreStart.addEventListener("click", () => {
+  const path = calibrePath.value.trim();
+  if (!path) return;
+  calibreStart.disabled = true;
+  calibreStatus.classList.remove("error");
+  calibreStatus.textContent = "Lendo biblioteca do Calibre...";
+  fetch("/api/import/calibre", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  })
+    .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then((p) => {
+      showCalibreProgress(p);
+      pollCalibre();
+    })
+    .catch((err) => {
+      calibreStart.disabled = false;
+      calibreStatus.classList.add("error");
+      calibreStatus.textContent = err.message;
+    });
+});
+
+function showCalibreProgress(p) {
+  calibreProgressEl.hidden = false;
+  const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+  calibreFill.style.width = pct + "%";
+  const parts = [`${p.done} de ${p.total}`, `${p.imported} importados`];
+  if (p.skipped) parts.push(`${p.skipped} ja existiam`);
+  if (p.unsupported) parts.push(`${p.unsupported} sem EPUB/PDF`);
+  if (p.errors && p.errors.length) parts.push(`${p.errors.length} com erro`);
+  calibreCounts.textContent = parts.join(" · ");
+  const errs = p.errors || [];
+  calibreErrors.hidden = errs.length === 0;
+  calibreErrors.innerHTML = errs.map((e) => `<li>${esc(e)}</li>`).join("");
+  calibreStart.disabled = p.running;
+  calibreStatus.classList.remove("error");
+  calibreStatus.textContent = p.running ? "Importando..." : p.total ? "Concluido" : "";
+}
+
+function pollCalibre() {
+  if (calibrePolling) return;
+  calibrePolling = true;
+  let lastDone = -1;
+  const tick = () => {
+    fetch("/api/import/calibre")
+      .then((r) => r.json())
+      .then(({ progress: p }) => {
+        showCalibreProgress(p);
+        if (p.done !== lastDone) {
+          lastDone = p.done;
+          loadBooks();
+          loadCounts();
+          loadTags();
+        }
+        if (p.running) setTimeout(tick, 800);
+        else calibrePolling = false;
+      })
+      .catch(() => (calibrePolling = false));
+  };
+  tick();
+}
 
 // ═══════════════════ Theme Toggle ═══════════════════
 const themeToggle = $("#theme-toggle");

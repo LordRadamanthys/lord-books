@@ -177,6 +177,15 @@ func (c *Client) googleBooks(ctx context.Context, query, isbn string) ([]Candida
 	return out, nil
 }
 
+// ShortLang converts an ISO 639-2 code (as used by OpenLibrary and Calibre) to the
+// two-letter form; unknown codes are returned unchanged.
+func ShortLang(code string) string {
+	if l, ok := olLangs[strings.ToLower(code)]; ok {
+		return l
+	}
+	return code
+}
+
 var olLangs = map[string]string{
 	"por": "pt", "eng": "en", "spa": "es", "fre": "fr", "fra": "fr",
 	"ger": "de", "deu": "de", "ita": "it", "jpn": "ja", "rus": "ru",

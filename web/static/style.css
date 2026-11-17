@@ -618,6 +618,13 @@ body {
   border-radius: 8px;
   padding: 1px 6px;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.list-tag--more {
+  color: var(--ink-faint);
+  border-color: var(--border);
 }
 .list-no-tags {
   color: var(--ink-faint);
@@ -1309,6 +1316,101 @@ body {
 }
 .meta-status.error { color: var(--danger); }
 
+/* ═══════════════════ Sort ═══════════════════ */
+.sort-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sort-label {
+  font-family: var(--font-mono);
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.sort-select {
+  font-family: var(--font-mono);
+  font-size: .66rem;
+  font-weight: 600;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* ═══════════════════ Calibre Import ═══════════════════ */
+.sidebar-calibre {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: .64rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: rgba(244,241,234,.7);
+  background: none;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all .12s;
+}
+.sidebar-calibre:hover { color: #F4F1EA; border-color: rgba(255,255,255,.35); }
+
+.modal--small { max-width: 560px; height: auto; max-height: 100%; }
+.calibre-body { padding: 18px 20px; overflow-y: auto; }
+.calibre-hint {
+  font-size: .9rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+}
+.calibre-hint code { font-family: var(--font-mono); font-size: .78rem; }
+.calibre-hint--small { font-size: .82rem; color: var(--ink-faint); margin: 10px 0 0; }
+.calibre-path-row { display: flex; gap: 8px; }
+.calibre-path { flex: 1; font-family: var(--font-mono); font-size: .8rem; }
+.calibre-browse { flex-shrink: 0; white-space: nowrap; }
+.calibre-path-warn {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: .66rem;
+  font-weight: 600;
+  color: var(--secondary);
+}
+
+.calibre-progress { margin-top: 16px; }
+.calibre-bar {
+  height: 4px;
+  background: var(--border-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.calibre-fill {
+  height: 100%;
+  width: 0;
+  background: var(--primary);
+  transition: width .3s;
+}
+.calibre-counts {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: .7rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.calibre-errors {
+  margin-top: 10px;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow-y: auto;
+  font-size: .82rem;
+  color: var(--danger);
+}
+
 /* ═══════════════════ Dark Theme ═══════════════════ */
 [data-theme="dark"] {
   --bg: #1A1918;
@@ -1388,6 +1490,8 @@ body {
   .list-header span:nth-child(3),
   .list-row .list-author { display: none; }
   .list-thumb { width: 36px; height: 50px; }
+  .sort-label { display: none; }
+  .catalog-sep { display: none; }
   .modal-backdrop { padding: 0; }
   .modal { height: 100%; border-radius: 0; }
   .modal-body { grid-template-columns: 1fr; grid-template-rows: 40% 1fr; }

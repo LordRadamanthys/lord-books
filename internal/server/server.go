@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
@@ -10,7 +11,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LordRadamanthys/lord-books/internal/calibre"
 	"github.com/LordRadamanthys/lord-books/internal/db"
+	"github.com/LordRadamanthys/lord-books/internal/dialog"
 	"github.com/LordRadamanthys/lord-books/internal/library"
 	"github.com/LordRadamanthys/lord-books/internal/metadata"
 )
@@ -35,6 +38,10 @@ func New(web fs.FS, store *db.DB, lib *library.Library, meta *metadata.Client) h
 	mux.HandleFunc("DELETE /api/tags/{id}", s.deleteTag)
 	mux.HandleFunc("POST /api/books/{id}/tags", s.addBookTag)
 	mux.HandleFunc("DELETE /api/books/{id}/tags/{tagID}", s.removeBookTag)
+	mux.HandleFunc("GET /api/stats", s.stats)
+	mux.HandleFunc("GET /api/import/calibre", s.calibreStatus)
+	mux.HandleFunc("POST /api/import/calibre", s.startCalibreImport)
+	mux.HandleFunc("POST /api/dialog/folder", s.pickFolder)
 	mux.HandleFunc("GET /api/metadata/search", s.searchMetadata)
 	mux.HandleFunc("POST /api/books/{id}/metadata", s.applyMetadata)
 
@@ -62,6 +69,7 @@ func (s *server) listBooks(w http.ResponseWriter, r *http.Request) {
 		AuthorID:   authorID,
 		SeriesID:   seriesID,
 		TagID:      tagID,
+		Sort:       q.Get("sort"),
 		Limit:      limit,
 		Offset:     offset,
 	})
@@ -357,6 +365,81 @@ func (s *server) removeBookTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(204)
+}
+
+func (s *server) stats(w http.ResponseWriter, r *http.Request) {
+	st, err := s.db.Stats(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, st)
+}
+
+func (s *server) calibreStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{
+		"default_path": calibre.DefaultPath(),
+		"progress":     s.lib.CalibreStatus(),
+	})
+}
+
+func (s *server) startCalibreImport(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	dir := strings.TrimSpace(req.Path)
+	if strings.HasPrefix(dir, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = filepath.Join(home, strings.TrimPrefix(dir, "~"))
+		}
+	}
+	dir = strings.TrimSuffix(filepath.Clean(dir), string(filepath.Separator)+"metadata.db")
+	if dir == "" || !calibre.IsLibrary(dir) {
+		http.Error(w, "nenhuma biblioteca do Calibre (metadata.db) nessa pasta", 400)
+		return
+	}
+	progress, err := s.lib.StartCalibreImport(r.Context(), dir)
+	if err != nil {
+		http.Error(w, err.Error(), 409)
+		return
+	}
+	writeJSON(w, progress)
+}
+
+func (s *server) pickFolder(w http.ResponseWriter, r *http.Request) {
+	// Opening a window on the user's desktop must only be triggered by our own page:
+	// a JSON body forces a CORS preflight for other origins, and Sec-Fetch-Site rejects them outright.
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
+		http.Error(w, "forbidden", 403)
+		return
+	}
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		http.Error(w, "json required", 415)
+		return
+	}
+	var req struct {
+		Start string `json:"start"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	start := strings.TrimSpace(req.Start)
+	if st, err := os.Stat(start); err != nil || !st.IsDir() {
+		start, _ = os.UserHomeDir()
+	}
+
+	path, err := dialog.PickFolder(r.Context(), "Selecione a pasta da biblioteca do Calibre", start)
+	switch {
+	case errors.Is(err, dialog.ErrCanceled):
+		writeJSON(w, map[string]any{"canceled": true})
+	case err != nil:
+		http.Error(w, err.Error(), 501)
+	default:
+		writeJSON(w, map[string]any{"path": path, "is_calibre": calibre.IsLibrary(path)})
+	}
 }
 
 func (s *server) searchMetadata(w http.ResponseWriter, r *http.Request) {

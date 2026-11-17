@@ -60,8 +60,17 @@ type ListFilter struct {
 	AuthorID   int
 	SeriesID   int
 	TagID      int
-	Limit      int
+	Sort       string
+	Limit      int // 0 = no limit
 	Offset     int
+}
+
+var sortOrders = map[string]string{
+	"added":   "b.date_added DESC, b.id DESC",
+	"title":   "b.title COLLATE NOCASE ASC",
+	"author":  "(SELECT a2.sort_name FROM book_authors ba2 JOIN authors a2 ON a2.id = ba2.author_id WHERE ba2.book_id = b.id ORDER BY ba2.rowid LIMIT 1) COLLATE NOCASE ASC, b.title COLLATE NOCASE ASC",
+	"pubdate": "b.pub_date = '' ASC, b.pub_date DESC, b.title COLLATE NOCASE ASC",
+	"series":  "s.name IS NULL ASC, s.name COLLATE NOCASE ASC, b.series_index ASC, b.title COLLATE NOCASE ASC",
 }
 
 func (d *DB) ListBooks(ctx context.Context, f ListFilter) ([]Book, int, error) {
@@ -104,7 +113,11 @@ func (d *DB) ListBooks(ctx context.Context, f ListFilter) ([]Book, int, error) {
 	}
 
 	if f.Limit <= 0 {
-		f.Limit = 50
+		f.Limit = -1 // SQLite: no limit
+	}
+	order, ok := sortOrders[f.Sort]
+	if !ok {
+		order = sortOrders["added"]
 	}
 
 	q := `SELECT DISTINCT b.id, b.title, b.isbn, b.language, b.publisher, b.pub_date,
@@ -117,7 +130,7 @@ func (d *DB) ListBooks(ctx context.Context, f ListFilter) ([]Book, int, error) {
 		LEFT JOIN series s ON s.id = b.series_id
 		LEFT JOIN book_tags bt ON bt.book_id = b.id
 		WHERE ` + w + `
-		ORDER BY b.date_added DESC
+		ORDER BY ` + order + `
 		LIMIT ? OFFSET ?`
 
 	args = append(args, f.Limit, f.Offset)
@@ -140,21 +153,74 @@ func (d *DB) ListBooks(ctx context.Context, f ListFilter) ([]Book, int, error) {
 		books = append(books, b)
 	}
 
-	for i := range books {
-		authors, err := d.bookAuthors(ctx, books[i].ID)
-		if err != nil {
-			return nil, 0, err
-		}
-		books[i].Authors = authors
-
-		tags, err := d.bookTags(ctx, books[i].ID)
-		if err != nil {
-			return nil, 0, err
-		}
-		books[i].Tags = tags
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
 	}
-
+	if err := d.attachAuthorsAndTags(ctx, books); err != nil {
+		return nil, 0, err
+	}
 	return books, total, nil
+}
+
+// attachAuthorsAndTags loads names for all listed books in two queries instead of two per book.
+func (d *DB) attachAuthorsAndTags(ctx context.Context, books []Book) error {
+	if len(books) == 0 {
+		return nil
+	}
+	idx := make(map[int]int, len(books))
+	for i, b := range books {
+		idx[b.ID] = i
+	}
+	const chunk = 500
+	for start := 0; start < len(books); start += chunk {
+		end := min(start+chunk, len(books))
+		ph := strings.TrimSuffix(strings.Repeat("?,", end-start), ",")
+		args := make([]any, 0, end-start)
+		for _, b := range books[start:end] {
+			args = append(args, b.ID)
+		}
+		load := func(q string, add func(*Book, string)) error {
+			rows, err := d.conn.QueryContext(ctx, q, args...)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var id int
+				var name string
+				if err := rows.Scan(&id, &name); err != nil {
+					return err
+				}
+				add(&books[idx[id]], name)
+			}
+			return rows.Err()
+		}
+		if err := load(`SELECT ba.book_id, a.name FROM book_authors ba JOIN authors a ON a.id = ba.author_id
+			WHERE ba.book_id IN (`+ph+`) ORDER BY ba.rowid`, func(b *Book, n string) { b.Authors = append(b.Authors, n) }); err != nil {
+			return fmt.Errorf("load authors: %w", err)
+		}
+		if err := load(`SELECT bt.book_id, t.name FROM book_tags bt JOIN tags t ON t.id = bt.tag_id
+			WHERE bt.book_id IN (`+ph+`) ORDER BY t.name COLLATE NOCASE`, func(b *Book, n string) { b.Tags = append(b.Tags, n) }); err != nil {
+			return fmt.Errorf("load tags: %w", err)
+		}
+	}
+	return nil
+}
+
+type Stats struct {
+	Total   int `json:"total"`
+	Want    int `json:"want"`
+	Reading int `json:"reading"`
+	Read    int `json:"read"`
+}
+
+func (d *DB) Stats(ctx context.Context) (Stats, error) {
+	var s Stats
+	err := d.conn.QueryRowContext(ctx, `SELECT COUNT(*),
+		COALESCE(SUM(read_status = 'want'), 0),
+		COALESCE(SUM(read_status = 'reading'), 0),
+		COALESCE(SUM(read_status = 'read'), 0) FROM books`).Scan(&s.Total, &s.Want, &s.Reading, &s.Read)
+	return s, err
 }
 
 func (d *DB) bookAuthors(ctx context.Context, bookID int) ([]string, error) {
@@ -226,6 +292,9 @@ type InsertBook struct {
 	Authors     []string
 	SeriesName  string
 	SeriesIndex float64
+	Tags        []string
+	Rating      int
+	ReadStatus  string
 }
 
 func (d *DB) InsertBook(ctx context.Context, in InsertBook) (int, error) {
@@ -244,14 +313,18 @@ func (d *DB) InsertBook(ctx context.Context, in InsertBook) (int, error) {
 		}
 	}
 
+	status := in.ReadStatus
+	if status == "" {
+		status = "want"
+	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO books
 		(title, isbn, language, publisher, pub_date, description,
 		 file_path, cover_path, file_hash, file_size, format,
-		 series_id, series_index)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 series_id, series_index, rating, read_status)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		in.Title, in.ISBN, in.Language, in.Publisher, in.PubDate, in.Description,
 		in.FilePath, in.CoverPath, in.FileHash, in.FileSize, in.Format,
-		seriesID, in.SeriesIndex)
+		seriesID, in.SeriesIndex, in.Rating, status)
 	if err != nil {
 		return 0, fmt.Errorf("insert book: %w", err)
 	}
@@ -267,6 +340,28 @@ func (d *DB) InsertBook(ctx context.Context, in InsertBook) (int, error) {
 		var aid int
 		if err := tx.QueryRowContext(ctx, `SELECT id FROM authors WHERE name = ?`, name).Scan(&aid); err == nil {
 			tx.ExecContext(ctx, `INSERT OR IGNORE INTO book_authors(book_id, author_id) VALUES(?, ?)`, bookID, aid)
+		}
+	}
+
+	for _, name := range in.Tags {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		var tid int
+		err := tx.QueryRowContext(ctx, `SELECT id FROM tags WHERE name = ? COLLATE NOCASE`, name).Scan(&tid)
+		if err == sql.ErrNoRows {
+			r, err := tx.ExecContext(ctx, `INSERT INTO tags(name) VALUES(?)`, name)
+			if err != nil {
+				return 0, fmt.Errorf("insert tag: %w", err)
+			}
+			id, _ := r.LastInsertId()
+			tid = int(id)
+		} else if err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO book_tags(book_id, tag_id) VALUES(?, ?)`, bookID, tid); err != nil {
+			return 0, err
 		}
 	}
 

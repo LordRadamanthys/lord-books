@@ -64,6 +64,7 @@
             + Importar
             <input id="file-input" type="file" accept=".epub,.pdf" multiple hidden>
           </label>
+          <button id="calibre-open" class="sidebar-calibre">Importar do Calibre</button>
         </div>
 
         <div class="sidebar-status">
@@ -90,6 +91,16 @@
           <span class="catalog-title">Catalogo</span>
           <span class="catalog-count" id="catalog-count"></span>
           <div class="catalog-sep"></div>
+          <label class="sort-wrap">
+            <span class="sort-label">Ordenar</span>
+            <select id="sort-select" class="sort-select">
+              <option value="added">Recentes</option>
+              <option value="title">Titulo</option>
+              <option value="author">Autor</option>
+              <option value="pubdate">Publicacao</option>
+              <option value="series">Serie</option>
+            </select>
+          </label>
           <div class="view-toggle">
             <button id="view-grid" class="view-btn active">Capas</button>
             <button id="view-list" class="view-btn">Lista</button>
@@ -193,6 +204,41 @@
         <span id="meta-status" class="meta-status"></span>
         <button id="meta-cancel" class="action-btn">Cancelar</button>
         <button id="meta-apply" class="meta-apply-btn" disabled>Aplicar selecionados</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Calibre import modal -->
+  <div id="calibre-modal" class="modal-backdrop" hidden>
+    <div class="modal modal--small" role="dialog" aria-modal="true" aria-labelledby="calibre-title">
+      <div class="modal-header">
+        <span id="calibre-title" class="modal-title">Importar do Calibre</span>
+        <button id="calibre-close" class="inspector-close" aria-label="Fechar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="calibre-body">
+        <p class="calibre-hint">Pasta da biblioteca do Calibre (a que contém o <code>metadata.db</code>). Os arquivos são copiados; o Calibre não é alterado.</p>
+        <div class="calibre-path-row">
+          <input id="calibre-path" type="text" class="meta-input calibre-path" placeholder="~/Calibre Library" spellcheck="false">
+          <button id="calibre-browse" class="action-btn calibre-browse" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+            Escolher pasta
+          </button>
+        </div>
+        <p id="calibre-path-warn" class="calibre-path-warn" hidden></p>
+        <p class="calibre-hint calibre-hint--small">Traz titulo, autores, capa, descricao, tags, serie, editora, ISBN e idioma. Livros que ja estao na biblioteca sao pulados. So EPUB e PDF sao importados.</p>
+
+        <div id="calibre-progress" class="calibre-progress" hidden>
+          <div class="calibre-bar"><div id="calibre-fill" class="calibre-fill"></div></div>
+          <div id="calibre-counts" class="calibre-counts"></div>
+          <ul id="calibre-errors" class="calibre-errors" hidden></ul>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span id="calibre-status" class="meta-status"></span>
+        <button id="calibre-cancel" class="action-btn">Fechar</button>
+        <button id="calibre-start" class="meta-apply-btn">Importar</button>
       </div>
     </div>
   </div>

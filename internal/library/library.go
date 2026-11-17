@@ -18,6 +18,7 @@ import (
 type Library struct {
 	db      *db.DB
 	baseDir string
+	calibre calibreJob
 }
 
 func New(store *db.DB, baseDir string) *Library {
@@ -25,96 +26,126 @@ func New(store *db.DB, baseDir string) *Library {
 }
 
 type ImportResult struct {
-	BookID int
-	Title  string
+	BookID  int
+	Title   string
 	Skipped bool
 	Reason  string
 }
 
 func (lib *Library) Import(ctx context.Context, srcPath string) (*ImportResult, error) {
-	f, err := os.Open(srcPath)
-	if err != nil {
-		return nil, fmt.Errorf("open file: %w", err)
-	}
-	defer f.Close()
-
-	hash, size, err := hashFile(f)
-	if err != nil {
-		return nil, fmt.Errorf("hash file: %w", err)
+	hash, size, dup, err := lib.checkDuplicate(ctx, srcPath)
+	if err != nil || dup {
+		return dupResult(dup), err
 	}
 
-	exists, err := lib.db.HashExists(ctx, hash)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return &ImportResult{Skipped: true, Reason: "duplicate (same hash)"}, nil
-	}
-
-	ext := strings.ToLower(filepath.Ext(srcPath))
-	format := strings.TrimPrefix(ext, ".")
-
+	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(srcPath)), ".")
 	var meta *epub.Metadata
 	if format == "epub" {
-		meta, err = epub.Parse(srcPath)
-		if err != nil {
-			meta = nil
-		}
-	}
-
-	title := titleFromMeta(meta, srcPath)
-	authors := authorsFromMeta(meta)
-
-	authorDir := sanitizePath(joinAuthors(authors))
-	if authorDir == "" {
-		authorDir = "Desconhecido"
-	}
-	titleDir := sanitizePath(title)
-	if titleDir == "" {
-		titleDir = "Sem Título"
-	}
-
-	destDir := filepath.Join(lib.baseDir, "library", authorDir, titleDir)
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create dir: %w", err)
-	}
-
-	destFile := filepath.Join(destDir, sanitizePath(title)+ext)
-	if err := copyFile(srcPath, destFile); err != nil {
-		return nil, fmt.Errorf("copy file: %w", err)
-	}
-
-	var coverPath string
-	if meta != nil && len(meta.CoverData) > 0 {
-		coverPath = filepath.Join(destDir, "cover"+meta.CoverExt)
-		if err := os.WriteFile(coverPath, meta.CoverData, 0o644); err != nil {
-			coverPath = ""
-		}
+		meta, _ = epub.Parse(srcPath)
 	}
 
 	in := db.InsertBook{
-		Title:    title,
-		Format:   format,
-		FilePath: destFile,
-		FileHash: hash,
-		FileSize: size,
-		CoverPath: coverPath,
-		Authors:  authors,
+		Title:   titleFromMeta(meta, srcPath),
+		Authors: authorsFromMeta(meta),
 	}
+	var cover []byte
+	var coverExt string
 	if meta != nil {
 		in.ISBN = meta.ISBN
 		in.Language = meta.Language
 		in.Publisher = meta.Publisher
 		in.PubDate = meta.PubDate
 		in.Description = meta.Description
+		cover, coverExt = meta.CoverData, meta.CoverExt
 	}
+	return lib.store(ctx, srcPath, hash, size, in, cover, coverExt)
+}
+
+func dupResult(dup bool) *ImportResult {
+	if !dup {
+		return nil
+	}
+	return &ImportResult{Skipped: true, Reason: "duplicate (same hash)"}
+}
+
+func (lib *Library) checkDuplicate(ctx context.Context, srcPath string) (hash string, size int64, dup bool, err error) {
+	f, err := os.Open(srcPath)
+	if err != nil {
+		return "", 0, false, fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+	hash, size, err = hashFile(f)
+	if err != nil {
+		return "", 0, false, fmt.Errorf("hash file: %w", err)
+	}
+	dup, err = lib.db.HashExists(ctx, hash)
+	return hash, size, dup, err
+}
+
+// store copies the file into the library tree, writes the cover and inserts the book.
+func (lib *Library) store(ctx context.Context, srcPath, hash string, size int64, in db.InsertBook, cover []byte, coverExt string) (*ImportResult, error) {
+	ext := strings.ToLower(filepath.Ext(srcPath))
+
+	authorDir := sanitizePath(joinAuthors(in.Authors))
+	if authorDir == "" {
+		authorDir = "Desconhecido"
+	}
+	titleDir := sanitizePath(in.Title)
+	if titleDir == "" {
+		titleDir = "Sem Título"
+	}
+
+	destDir, err := uniqueDir(filepath.Join(lib.baseDir, "library", authorDir), titleDir)
+	if err != nil {
+		return nil, fmt.Errorf("create dir: %w", err)
+	}
+
+	destFile := filepath.Join(destDir, titleDir+ext)
+	if err := copyFile(srcPath, destFile); err != nil {
+		os.RemoveAll(destDir)
+		return nil, fmt.Errorf("copy file: %w", err)
+	}
+
+	if len(cover) > 0 {
+		coverPath := filepath.Join(destDir, "cover"+coverExt)
+		if os.WriteFile(coverPath, cover, 0o644) == nil {
+			in.CoverPath = coverPath
+		}
+	}
+
+	in.Format = strings.TrimPrefix(ext, ".")
+	in.FilePath = destFile
+	in.FileHash = hash
+	in.FileSize = size
 
 	id, err := lib.db.InsertBook(ctx, in)
 	if err != nil {
+		os.RemoveAll(destDir)
 		return nil, fmt.Errorf("insert book: %w", err)
 	}
+	return &ImportResult{BookID: id, Title: in.Title}, nil
+}
 
-	return &ImportResult{BookID: id, Title: title}, nil
+// uniqueDir creates parent/name, or parent/name (2), (3)... if it already exists,
+// so two editions with the same title never share (and overwrite) a folder.
+func uniqueDir(parent, name string) (string, error) {
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", err
+	}
+	for i := 1; i < 1000; i++ {
+		dir := filepath.Join(parent, name)
+		if i > 1 {
+			dir = filepath.Join(parent, fmt.Sprintf("%s (%d)", name, i))
+		}
+		err := os.Mkdir(dir, 0o755)
+		if err == nil {
+			return dir, nil
+		}
+		if !os.IsExist(err) {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("too many folders named %q", name)
 }
 
 func titleFromMeta(meta *epub.Metadata, path string) string {
