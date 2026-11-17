@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -77,7 +78,9 @@ func identify(mount, name string) Kind {
 		return Kobo
 	case strings.Contains(lname, "kindle") || (isDir(mount, "documents") && isDir(mount, "system") && fileExists(filepath.Join(mount, "system", "version.txt"))):
 		return Kindle
-	case isDir(mount, ".crosspoint") || strings.Contains(lname, "xteink"):
+	// .crosspoint: CrossPoint firmware. XTCache/XTData/XTApps: Xteink's stock firmware.
+	case isDir(mount, ".crosspoint") || isDir(mount, "XTCache") || isDir(mount, "XTData") ||
+		isDir(mount, "XTApps") || strings.Contains(lname, "xteink"):
 		return Xteink
 	}
 	return Generic
@@ -110,12 +113,46 @@ func Destination(d Device, folder string) (string, error) {
 	return dest, nil
 }
 
+// System folders that operating systems and cameras create on cards; never book destinations.
+var systemFolders = map[string]bool{
+	"system volume information": true, "$recycle.bin": true, "lost.dir": true,
+	"lost+found": true, "android": true, "dcim": true,
+}
+
+// Folders lists the visible subfolders of rel inside the device and returns rel cleaned
+// to a "/"-separated path relative to the volume root ("" for the root).
+func Folders(d Device, rel string) (string, []string, error) {
+	dir, err := Destination(d, rel)
+	if err != nil {
+		return "", nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", nil, err
+	}
+	folders := []string{}
+	for _, e := range entries {
+		name := e.Name()
+		if !e.IsDir() || strings.HasPrefix(name, ".") || systemFolders[strings.ToLower(name)] {
+			continue
+		}
+		folders = append(folders, name)
+	}
+	sort.Slice(folders, func(i, j int) bool { return strings.ToLower(folders[i]) < strings.ToLower(folders[j]) })
+	clean, _ := filepath.Rel(d.Mount, dir)
+	if clean == "." {
+		clean = ""
+	}
+	return filepath.ToSlash(clean), folders, nil
+}
+
 type Item struct {
 	BookID      int
 	Title       string
 	Authors     []string
 	Format      string
 	Path        string
+	Hash        string // sha256 of Path, if already known
 	Cover       string
 	Series      string
 	SeriesIndex float64
@@ -128,15 +165,25 @@ type Item struct {
 type Result struct {
 	BookID    int    `json:"book_id"`
 	Title     string `json:"title"`
-	Status    string `json:"status"` // sent, exists, unsupported, error
+	Status    string `json:"status"` // sent, exists, duplicate, unsupported, error
 	Converted bool   `json:"converted,omitempty"`
 	File      string `json:"file,omitempty"`
+	Existing  string `json:"existing,omitempty"` // device path of the copy already there
 	Error     string `json:"error,omitempty"`
 }
 
-// Send copies each book to dest, converting with conv (may be nil) when the device can't
-// open the book's format. A file of the same name and size counts as already there.
-func Send(ctx context.Context, p Profile, dest string, items []Item, conv *Converter) []Result {
+type SendOptions struct {
+	Converter *Converter // may be nil: books needing conversion are then unsupported
+	OnDevice  *Index     // books already on the device; nil skips the duplicate check
+	Force     bool       // send even when a copy with the same title and author exists
+	Mount     string     // volume root, to report where sent files landed
+}
+
+// Send copies each book to dest, converting when the device can't open its format.
+// Identical content anywhere on the device counts as already there; the same title and
+// author with different content is a likely duplicate and skipped unless opts.Force.
+func Send(ctx context.Context, p Profile, dest string, items []Item, opts SendOptions) []Result {
+	conv := opts.Converter
 	results := make([]Result, 0, len(items))
 	mkErr := os.MkdirAll(dest, 0o755)
 	for _, it := range items {
@@ -151,13 +198,17 @@ func Send(ctx context.Context, p Profile, dest string, items []Item, conv *Conve
 		case mkErr != nil:
 			r.Status, r.Error = "error", mkErr.Error()
 		default:
+			hash := it.Hash
 			if !supports(p, format) {
 				out, err := conv.Convert(ctx, it, target)
 				if err != nil {
 					r.Status, r.Error = "error", err.Error()
 					break
 				}
-				src, format, r.Converted = out, target, true
+				src, format, r.Converted, hash = out, target, true, ""
+			}
+			if hash == "" {
+				hash, _ = hashFile(src)
 			}
 			author := ""
 			if len(it.Authors) > 0 {
@@ -166,12 +217,31 @@ func Send(ctx context.Context, p Profile, dest string, items []Item, conv *Conve
 			name := deviceFileName(it.Title, author, format)
 			r.File = name
 			dst := filepath.Join(dest, name)
+
+			var size int64
+			if st, err := os.Stat(src); err == nil {
+				size = st.Size()
+			}
+			if opts.OnDevice != nil {
+				if dup, kind := opts.OnDevice.Match(hash, size, it.Title, it.Authors); kind == "exact" {
+					r.Status, r.Existing = "exists", dup.Path
+					break
+				} else if kind == "likely" && !opts.Force {
+					r.Status, r.Existing = "duplicate", dup.Path
+					break
+				}
+			}
 			if same, _ := sameSize(src, dst); same {
 				r.Status = "exists"
 			} else if err := copyDurable(src, dst); err != nil {
 				r.Status, r.Error = "error", err.Error()
 			} else {
 				r.Status = "sent"
+				if opts.OnDevice != nil {
+					rel, _ := filepath.Rel(opts.Mount, dst)
+					// Recorded so the same book twice in one batch isn't copied twice.
+					opts.OnDevice.Add(DeviceBook{Path: filepath.ToSlash(rel), Format: format, Size: size, Title: it.Title, Authors: it.Authors, hash: hash})
+				}
 			}
 		}
 		results = append(results, r)

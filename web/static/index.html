@@ -342,9 +342,24 @@
               <span>Tipo</span>
               <select id="send-kind"></select>
             </label>
-            <label class="edit-field">
-              <span>Pasta no dispositivo <em>vazio = raiz</em></span>
-              <input id="send-folder" type="text" spellcheck="false">
+            <div class="edit-field">
+              <label for="send-folder"><span>Pasta no dispositivo <em>vazio = raiz</em></span></label>
+              <div class="send-folder-row">
+                <input id="send-folder" type="text" spellcheck="false">
+                <button id="send-folder-browse" class="action-btn" type="button">Escolher</button>
+              </div>
+            </div>
+            <div id="send-folder-browser" class="folder-browser" hidden>
+              <div id="folder-crumbs" class="folder-crumbs"></div>
+              <ul id="folder-list" class="folder-list"></ul>
+              <div class="folder-actions">
+                <button id="folder-cancel" class="action-btn" type="button">Cancelar</button>
+                <button id="folder-use" class="meta-apply-btn" type="button">Usar esta pasta</button>
+              </div>
+            </div>
+            <label class="send-force">
+              <input id="send-force" type="checkbox">
+              Enviar mesmo se ja houver uma copia com o mesmo titulo e autor
             </label>
             <p id="send-formats" class="send-note"></p>
             <p id="send-profile-note" class="send-note send-note--warn" hidden></p>
@@ -352,12 +367,28 @@
           </div>
         </div>
         <div class="send-books">
-          <div class="send-col-head">
-            <input id="send-filter" type="search" class="meta-input send-filter" placeholder="Filtrar livros...">
-            <button id="send-all" class="action-btn" type="button">Todos</button>
-            <button id="send-none" class="action-btn" type="button">Nenhum</button>
+          <div class="send-tabs" role="tablist">
+            <button id="tab-send" class="send-tab active" role="tab" aria-selected="true" type="button">Enviar livros</button>
+            <button id="tab-device" class="send-tab" role="tab" aria-selected="false" type="button">No dispositivo <span id="device-book-count"></span></button>
           </div>
-          <ul id="send-book-list" class="send-book-list"></ul>
+
+          <div id="pane-send" class="send-pane">
+            <div class="send-col-head">
+              <input id="send-filter" type="search" class="meta-input send-filter" placeholder="Filtrar livros...">
+              <button id="send-all" class="action-btn" type="button">Todos</button>
+              <button id="send-none" class="action-btn" type="button">Nenhum</button>
+            </div>
+            <ul id="send-book-list" class="send-book-list"></ul>
+          </div>
+
+          <div id="pane-device" class="send-pane" hidden>
+            <div class="send-col-head">
+              <input id="device-filter" type="search" class="meta-input send-filter" placeholder="Filtrar livros no dispositivo...">
+              <button id="device-books-refresh" class="action-btn" type="button">Atualizar</button>
+            </div>
+            <div id="device-books-summary" class="device-books-summary"></div>
+            <ul id="device-book-list" class="send-book-list"></ul>
+          </div>
         </div>
       </div>
       <div class="modal-footer">

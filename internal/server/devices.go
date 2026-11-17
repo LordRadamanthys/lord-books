@@ -3,6 +3,10 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
+
+	"github.com/LordRadamanthys/lord-books/internal/db"
 
 	"github.com/LordRadamanthys/lord-books/internal/devices"
 )
@@ -20,12 +24,89 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *server) deviceFolders(w http.ResponseWriter, r *http.Request) {
+	dev, err := devices.Find(r.Context(), r.URL.Query().Get("device"))
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	rel, folders, err := devices.Folders(dev, r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, "não foi possível abrir a pasta: "+err.Error(), 400)
+		return
+	}
+	writeJSON(w, map[string]any{"path": rel, "folders": folders})
+}
+
+// deviceBooks lists the books on a device and marks the ones that are in the library.
+func (s *server) deviceBooks(w http.ResponseWriter, r *http.Request) {
+	dev, err := devices.Find(r.Context(), r.URL.Query().Get("device"))
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	onDevice, err := devices.Scan(r.Context(), dev)
+	if err != nil {
+		http.Error(w, "não foi possível ler os livros do dispositivo: "+err.Error(), 500)
+		return
+	}
+	library, _, err := s.db.ListBooks(r.Context(), db.ListFilter{})
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	// Device files are hashed only when a library book has exactly the same size: reading
+	// whole files from an e-reader over USB is slow.
+	bySize := map[int64][]db.Book{}
+	byKey := map[string]int{}
+	for _, b := range library {
+		if b.FileHash != "" {
+			bySize[b.FileSize] = append(bySize[b.FileSize], b)
+		}
+		for _, k := range devices.MatchKeys(b.Title, b.Authors) {
+			byKey[k] = b.ID
+		}
+	}
+
+	type entry struct {
+		devices.DeviceBook
+		LibraryID int    `json:"library_id,omitempty"`
+		Match     string `json:"match,omitempty"` // exact | likely
+	}
+	out := make([]entry, 0, len(onDevice))
+	var total int64
+	for _, b := range onDevice {
+		e := entry{DeviceBook: b}
+		for _, lb := range bySize[b.Size] {
+			if b.Hash() == lb.FileHash {
+				e.LibraryID, e.Match = lb.ID, "exact"
+				break
+			}
+		}
+		if e.Match == "" {
+			for _, k := range devices.MatchKeys(b.Title, b.Authors) {
+				if id, ok := byKey[k]; ok {
+					e.LibraryID, e.Match = id, "likely"
+					break
+				}
+			}
+		}
+		total += b.Size
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
+	})
+	writeJSON(w, map[string]any{"books": out, "total_size": total})
+}
+
 func (s *server) sendToDevice(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Device  string `json:"device"`
 		Kind    string `json:"kind"`
 		Folder  string `json:"folder"`
 		BookIDs []int  `json:"book_ids"`
+		Force   bool   `json:"force"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.BookIDs) == 0 {
 		http.Error(w, "device and book_ids required", 400)
@@ -61,6 +142,7 @@ func (s *server) sendToDevice(w http.ResponseWriter, r *http.Request) {
 			Authors:     b.Authors,
 			Format:      b.Format,
 			Path:        b.FilePath,
+			Hash:        b.FileHash,
 			Cover:       b.CoverPath,
 			Series:      b.SeriesName,
 			SeriesIndex: b.SeriesIndex,
@@ -70,7 +152,17 @@ func (s *server) sendToDevice(w http.ResponseWriter, r *http.Request) {
 			PubDate:     b.PubDate,
 		})
 	}
-	results := append(devices.Send(r.Context(), profile, dest, items, devices.FindConverter()), missing...)
+	onDevice, err := devices.Scan(r.Context(), dev)
+	if err != nil {
+		http.Error(w, "não foi possível ler os livros do dispositivo: "+err.Error(), 500)
+		return
+	}
+	results := append(devices.Send(r.Context(), profile, dest, items, devices.SendOptions{
+		Converter: devices.FindConverter(),
+		OnDevice:  devices.NewIndex(onDevice),
+		Force:     req.Force,
+		Mount:     dev.Mount,
+	}), missing...)
 	free, _ := devicesFree(r, dev.ID)
 	writeJSON(w, map[string]any{"results": results, "free_bytes": free})
 }

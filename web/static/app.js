@@ -1049,7 +1049,13 @@ const sendState = {
   converter: false,
 };
 
-const SEND_RESULT = { sent: "enviado", exists: "ja estava", unsupported: "formato incompativel", error: "erro" };
+const SEND_RESULT = {
+  sent: "enviado",
+  exists: "ja estava",
+  duplicate: "provavel duplicado",
+  unsupported: "formato incompativel",
+  error: "erro",
+};
 
 $("#send-open").addEventListener("click", () => openSendModal([]));
 $("#inspector-send").addEventListener("click", () => selectedBook && openSendModal([selectedBook.id]));
@@ -1063,6 +1069,9 @@ function openSendModal(preselect) {
   sendState.checked = new Set(preselect);
   sendState.results = {};
   sendFilter.value = "";
+  deviceFilter.value = "";
+  deviceBooks.loadedFor = "";
+  showTab("send");
   setSendStatus("");
   sendModal.hidden = false;
   fetch("/api/books?sort=title")
@@ -1155,8 +1164,11 @@ function deviceKind(d) {
 }
 
 function selectDevice(id) {
+  const changed = sendState.deviceId !== id;
   sendState.deviceId = id;
   sendState.results = {};
+  folderBrowser.hidden = true;
+  if (changed || !deviceBooks.loadedFor) loadDeviceBooks();
   sendDeviceList.querySelectorAll(".send-device").forEach((li) =>
     li.classList.toggle("selected", li.dataset.device === id)
   );
@@ -1186,6 +1198,152 @@ sendKind.addEventListener("change", () => {
 sendFolder.addEventListener("change", () => {
   const d = currentDevice();
   if (d) savePref(d, "folder", sendFolder.value.trim());
+});
+
+// ─── Tabs: books to send / books already on the device ───
+const deviceBooks = { list: [], loadedFor: "", seq: 0 };
+const deviceBookList = $("#device-book-list");
+const deviceFilter = $("#device-filter");
+
+function showTab(which) {
+  const dev = which === "device";
+  $("#tab-send").classList.toggle("active", !dev);
+  $("#tab-device").classList.toggle("active", dev);
+  $("#tab-send").setAttribute("aria-selected", String(!dev));
+  $("#tab-device").setAttribute("aria-selected", String(dev));
+  $("#pane-send").hidden = dev;
+  $("#pane-device").hidden = !dev;
+}
+$("#tab-send").addEventListener("click", () => showTab("send"));
+$("#tab-device").addEventListener("click", () => showTab("device"));
+$("#device-books-refresh").addEventListener("click", loadDeviceBooks);
+deviceFilter.addEventListener("input", renderDeviceBooks);
+
+function loadDeviceBooks() {
+  const d = currentDevice();
+  const seq = ++deviceBooks.seq;
+  deviceBooks.list = [];
+  deviceBooks.loadedFor = d ? d.id : "";
+  $("#device-book-count").textContent = "";
+  if (!d) {
+    $("#device-books-summary").textContent = "";
+    deviceBookList.innerHTML = `<li class="send-empty">Nenhum dispositivo selecionado.</li>`;
+    return;
+  }
+  $("#device-books-summary").textContent = `Lendo ${d.name}... (a primeira leitura de um cartao pode levar alguns segundos)`;
+  deviceBookList.innerHTML = "";
+  fetch("/api/devices/books?" + new URLSearchParams({ device: d.id }))
+    .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then((data) => {
+      if (seq !== deviceBooks.seq) return;
+      deviceBooks.list = data.books || [];
+      const n = deviceBooks.list.length;
+      const inLib = deviceBooks.list.filter((b) => b.match).length;
+      $("#device-book-count").textContent = `(${n})`;
+      $("#device-books-summary").textContent =
+        `${n} livro${n === 1 ? "" : "s"} · ${formatSize(data.total_size) || "0 B"} · ${inLib} na biblioteca · ${n - inLib} so no dispositivo`;
+      renderDeviceBooks();
+    })
+    .catch((err) => {
+      if (seq !== deviceBooks.seq) return;
+      $("#device-books-summary").textContent = err.message;
+    });
+}
+
+function renderDeviceBooks() {
+  const q = deviceFilter.value.trim().toLowerCase();
+  const rows = deviceBooks.list.filter(
+    (b) => !q || b.title.toLowerCase().includes(q) || (b.authors || []).join(" ").toLowerCase().includes(q) || b.path.toLowerCase().includes(q)
+  );
+  if (rows.length === 0) {
+    deviceBookList.innerHTML = deviceBooks.list.length
+      ? `<li class="send-empty">Nenhum livro corresponde ao filtro.</li>`
+      : deviceBooks.loadedFor ? `<li class="send-empty">Nenhum livro (EPUB, PDF, AZW3, MOBI) encontrado neste dispositivo.</li>` : "";
+    return;
+  }
+  const badge = { exact: "na biblioteca", likely: "parecido na biblioteca" };
+  deviceBookList.innerHTML = rows
+    .map((b) => {
+      const fmt = (b.format || "").toLowerCase();
+      return `<li class="send-book device-book">
+        <div class="send-book-text">
+          <div class="send-book-title">${esc(b.title)}</div>
+          <div class="send-book-author">${esc((b.authors || []).join(", ")) || "&nbsp;"}</div>
+          <div class="device-book-path" title="${esc(b.path)}">${esc(b.path)} · ${esc(formatSize(b.size))}</div>
+        </div>
+        <span class="lib-badge" data-match="${esc(b.match || "")}">${esc(badge[b.match] || "so no dispositivo")}</span>
+        <span class="list-format list-format-${esc(fmt)}">${esc(fmt.toUpperCase())}</span>
+      </li>`;
+    })
+    .join("");
+}
+
+// ─── Folder browser inside the selected device ───
+const folderBrowser = $("#send-folder-browser");
+const folderCrumbs = $("#folder-crumbs");
+const folderList = $("#folder-list");
+const folderIcon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>`;
+let browsePath = "";
+let browseSeq = 0;
+
+$("#send-folder-browse").addEventListener("click", () => {
+  if (!folderBrowser.hidden) return (folderBrowser.hidden = true);
+  folderBrowser.hidden = false;
+  browseTo(sendFolder.value.trim());
+});
+$("#folder-cancel").addEventListener("click", () => (folderBrowser.hidden = true));
+$("#folder-use").addEventListener("click", () => {
+  sendFolder.value = browsePath;
+  sendFolder.dispatchEvent(new Event("change"));
+  folderBrowser.hidden = true;
+});
+
+function browseTo(path) {
+  const d = currentDevice();
+  if (!d) return;
+  const seq = ++browseSeq;
+  folderList.innerHTML = `<li class="folder-empty">Carregando...</li>`;
+  const params = new URLSearchParams({ device: d.id, path });
+  fetch("/api/devices/folders?" + params)
+    .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then((res) => {
+      if (seq !== browseSeq) return;
+      browsePath = res.path;
+      renderCrumbs(d);
+      folderList.innerHTML = res.folders.length
+        ? res.folders.map((f) => `<li class="folder-item" data-name="${esc(f)}">${folderIcon}<span>${esc(f)}</span></li>`).join("")
+        : `<li class="folder-empty">Nenhuma subpasta. Use esta, ou digite um nome novo no campo para criar.</li>`;
+    })
+    .catch((err) => {
+      if (seq !== browseSeq) return;
+      // A typed folder that doesn't exist yet: fall back to the device root.
+      if (path) return browseTo("");
+      folderList.innerHTML = `<li class="folder-empty">${esc(err.message)}</li>`;
+    });
+}
+
+function renderCrumbs(d) {
+  const parts = browsePath ? browsePath.split("/") : [];
+  const crumbs = [`<button type="button" data-path="">${esc(d.name)}</button>`];
+  parts.forEach((p, i) => {
+    const path = parts.slice(0, i + 1).join("/");
+    crumbs.push("/");
+    crumbs.push(
+      i === parts.length - 1
+        ? `<span class="crumb-current">${esc(p)}</span>`
+        : `<button type="button" data-path="${esc(path)}">${esc(p)}</button>`
+    );
+  });
+  folderCrumbs.innerHTML = crumbs.join("");
+}
+
+folderCrumbs.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-path]");
+  if (b) browseTo(b.dataset.path);
+});
+folderList.addEventListener("click", (e) => {
+  const li = e.target.closest(".folder-item");
+  if (li) browseTo(browsePath ? `${browsePath}/${li.dataset.name}` : li.dataset.name);
 });
 
 function currentProfile() {
@@ -1240,11 +1398,18 @@ function renderSendBooks() {
           <div class="send-book-author">${esc((b.authors || []).join(", "))}</div>
         </div>
         <span class="list-format list-format-${esc((b.format || "").toLowerCase())}">${esc((b.format || "").toUpperCase())}</span>
-        <span class="send-result" data-status="${res ? esc(res.status) : ""}" title="${res && res.error ? esc(res.error) : ""}">${esc(resLabel)}</span>
+        <span class="send-result" data-status="${res ? esc(res.status) : ""}" title="${esc(resultTip(res))}">${esc(resLabel)}</span>
       </li>`;
     })
     .join("");
   updateSendButton();
+}
+
+function resultTip(res) {
+  if (!res) return "";
+  if (res.error) return res.error;
+  if (res.existing) return `Ja esta no dispositivo em: ${res.existing}`;
+  return res.file ? `Gravado como: ${res.file}` : "";
 }
 
 sendFilter.addEventListener("input", renderSendBooks);
@@ -1292,6 +1457,7 @@ sendGo.addEventListener("click", () => {
       kind: sendKind.value,
       folder: sendFolder.value.trim(),
       book_ids: [...sendState.checked],
+      force: $("#send-force").checked,
     }),
   })
     .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))))
@@ -1304,9 +1470,11 @@ sendGo.addEventListener("click", () => {
       d.free_bytes = data.free_bytes || d.free_bytes;
       renderDevices();
       renderSendBooks();
+      if (counts.sent) loadDeviceBooks();
       const parts = [];
       if (counts.sent) parts.push(`${counts.sent} enviado${counts.sent > 1 ? "s" : ""}`);
       if (counts.exists) parts.push(`${counts.exists} ja estava${counts.exists > 1 ? "m" : ""} la`);
+      if (counts.duplicate) parts.push(`${counts.duplicate} provave${counts.duplicate > 1 ? "is" : "l"} duplicado${counts.duplicate > 1 ? "s" : ""} (passe o mouse para ver onde)`);
       if (counts.unsupported) parts.push(`${counts.unsupported} em formato incompativel`);
       if (counts.error) parts.push(`${counts.error} com erro`);
       setSendStatus(parts.join(" · "), !!counts.error);

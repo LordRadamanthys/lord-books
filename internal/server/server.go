@@ -47,6 +47,8 @@ func New(web fs.FS, store *db.DB, lib *library.Library, meta *metadata.Client) h
 	mux.HandleFunc("POST /api/books/{id}/metadata", s.applyMetadata)
 	mux.HandleFunc("PUT /api/books/{id}/cover", s.uploadCover)
 	mux.HandleFunc("GET /api/devices", s.listDevices)
+	mux.HandleFunc("GET /api/devices/folders", s.deviceFolders)
+	mux.HandleFunc("GET /api/devices/books", s.deviceBooks)
 	mux.HandleFunc("POST /api/devices/send", s.sendToDevice)
 	mux.HandleFunc("POST /api/devices/eject", s.ejectDevice)
 

@@ -32,6 +32,7 @@ func TestIdentify(t *testing.T) {
 		{"VOL3", []string{"documents", "system"}, "", Generic}, // no version.txt: not enough to call it a Kindle
 		{"SDCARD", []string{".crosspoint"}, "", Xteink},
 		{"XTEINK", nil, "", Xteink},
+		{"NO NAME 2", []string{"XTCache", "XTData", "XTApps", "Fonts"}, "", Xteink}, // stock firmware card
 		{"NO NAME", []string{"DCIM"}, "", Generic},
 	}
 	for _, c := range cases {
@@ -60,6 +61,83 @@ func TestDestinationStaysInsideDevice(t *testing.T) {
 	}
 }
 
+func TestFolders(t *testing.T) {
+	d := Device{Mount: t.TempDir()}
+	mkdirs(t, d.Mount, "livros/ficcao", "Books", ".Trashes", "System Volume Information", "DCIM")
+	os.WriteFile(filepath.Join(d.Mount, "arquivo.epub"), []byte("x"), 0o644)
+
+	rel, got, err := Folders(d, "")
+	if err != nil || rel != "" || strings.Join(got, ",") != "Books,livros" {
+		t.Errorf("root: rel=%q folders=%v err=%v", rel, got, err)
+	}
+	rel, got, err = Folders(d, "livros")
+	if err != nil || rel != "livros" || strings.Join(got, ",") != "ficcao" {
+		t.Errorf("livros: rel=%q folders=%v err=%v", rel, got, err)
+	}
+	rel, _, err = Folders(d, "../..")
+	if err != nil || rel != "" {
+		t.Errorf("escape attempt should clamp to root: rel=%q err=%v", rel, err)
+	}
+}
+
+func TestSendSkipsDuplicates(t *testing.T) {
+	dev := Device{Mount: t.TempDir()}
+	src := filepath.Join(t.TempDir(), "book.epub")
+	os.WriteFile(src, []byte("the real book"), 0o644)
+
+	// Same content under another name (e.g. copied by Calibre into Downloads/Calibre).
+	mkdirs(t, dev.Mount, "Downloads/Calibre", "outra")
+	os.WriteFile(filepath.Join(dev.Mount, "Downloads/Calibre", "perdido_em_marte.epub"), []byte("the real book"), 0o644)
+	// Same title/author, different bytes (metadata rewritten by another program).
+	os.WriteFile(filepath.Join(dev.Mount, "outra", "O Ceifador - Neal Shusterman.epub"), []byte("rewritten"), 0o644)
+
+	books, err := Scan(context.Background(), dev)
+	if err != nil || len(books) != 2 {
+		t.Fatalf("scan: %v %+v", err, books)
+	}
+	ceifadorSrc := filepath.Join(t.TempDir(), "c.epub")
+	os.WriteFile(ceifadorSrc, []byte("library copy"), 0o644)
+	items := []Item{
+		{BookID: 1, Title: "Perdido em Marte", Authors: []string{"Andy Weir"}, Format: "epub", Path: src},
+		{BookID: 2, Title: "O ceifador", Authors: []string{"Neal Shusterman", "Guilherme Miranda"}, Format: "epub", Path: ceifadorSrc},
+	}
+	dest := filepath.Join(dev.Mount, "Lord Books")
+
+	res := Send(context.Background(), Profiles[Generic], dest, items, SendOptions{OnDevice: NewIndex(books), Mount: dev.Mount})
+	if res[0].Status != "exists" || res[0].Existing != "Downloads/Calibre/perdido_em_marte.epub" {
+		t.Errorf("identical copy elsewhere: %+v", res[0])
+	}
+	if res[1].Status != "duplicate" || res[1].Existing != "outra/O Ceifador - Neal Shusterman.epub" {
+		t.Errorf("same title/author: %+v", res[1])
+	}
+	if entries, _ := os.ReadDir(dest); len(entries) != 0 {
+		t.Errorf("nothing should have been copied, got %d files", len(entries))
+	}
+
+	res = Send(context.Background(), Profiles[Generic], dest, items[1:], SendOptions{OnDevice: NewIndex(books), Mount: dev.Mount, Force: true})
+	if res[0].Status != "sent" {
+		t.Errorf("forced send: %+v", res[0])
+	}
+
+	// The same book twice in one batch is copied once.
+	fresh := Device{Mount: t.TempDir()}
+	twice := []Item{items[0], items[0]}
+	res = Send(context.Background(), Profiles[Generic], fresh.Mount, twice, SendOptions{OnDevice: NewIndex(nil), Mount: fresh.Mount})
+	if res[0].Status != "sent" || res[1].Status != "exists" {
+		t.Errorf("same book twice: %+v", res)
+	}
+}
+
+func TestTitleAuthorsFromName(t *testing.T) {
+	title, authors := titleAuthorsFromName("O crime do bom nazista - Prêmio Jabuti 2024 - Samir Machado de Machado.epub")
+	if title != "O crime do bom nazista - Prêmio Jabuti 2024" || len(authors) != 1 || authors[0] != "Samir Machado de Machado" {
+		t.Errorf("got %q %v", title, authors)
+	}
+	if Fold("Perdido Em Marte!") != Fold("perdido em marte") || Fold("Ficção") != "ficcao" {
+		t.Error("fold should ignore case, punctuation and accents")
+	}
+}
+
 func TestDeviceFileName(t *testing.T) {
 	got := deviceFileName(`O "melhor": livro?`, "Autor/Um", "EPUB")
 	if strings.ContainsAny(got, `/\:*?"<>|`) || !strings.HasSuffix(got, ".epub") {
@@ -85,7 +163,7 @@ func TestSend(t *testing.T) {
 		{BookID: 1, Title: "Livro", Authors: []string{"Ana"}, Format: "epub", Path: src},
 		{BookID: 2, Title: "Doc", Format: "pdf", Path: pdf},
 	}
-	res := Send(context.Background(), Profiles[Xteink], dest, items, nil)
+	res := Send(context.Background(), Profiles[Xteink], dest, items, SendOptions{})
 	if res[0].Status != "sent" || res[1].Status != "unsupported" {
 		t.Fatalf("first send: %+v", res)
 	}
@@ -95,14 +173,14 @@ func TestSend(t *testing.T) {
 	if matches, _ := filepath.Glob(filepath.Join(dest, "*.lbpart")); len(matches) > 0 {
 		t.Error("temp file left behind")
 	}
-	res = Send(context.Background(), Profiles[Xteink], dest, items[:1], nil)
+	res = Send(context.Background(), Profiles[Xteink], dest, items[:1], SendOptions{})
 	if res[0].Status != "exists" {
 		t.Errorf("second send: %+v", res[0])
 	}
 
 	// Kindle can't open EPUB; without Calibre's converter it must be refused, not copied.
 	kdest := filepath.Join(t.TempDir(), "documents")
-	res = Send(context.Background(), Profiles[Kindle], kdest, items, nil)
+	res = Send(context.Background(), Profiles[Kindle], kdest, items, SendOptions{})
 	if res[0].Status != "unsupported" || res[1].Status != "sent" {
 		t.Errorf("kindle without converter: %+v", res)
 	}

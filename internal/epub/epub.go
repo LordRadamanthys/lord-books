@@ -21,7 +21,13 @@ type Metadata struct {
 	CoverExt    string
 }
 
-func Parse(file string) (*Metadata, error) {
+func Parse(file string) (*Metadata, error) { return parse(file, true) }
+
+// ParseInfo reads only the text metadata, skipping the cover image; much cheaper on
+// slow storage such as an e-reader exposed over USB.
+func ParseInfo(file string) (*Metadata, error) { return parse(file, false) }
+
+func parse(file string, withCover bool) (*Metadata, error) {
 	r, err := zip.OpenReader(file)
 	if err != nil {
 		return nil, fmt.Errorf("open epub: %w", err)
@@ -72,6 +78,9 @@ func Parse(file string) (*Metadata, error) {
 		}
 	}
 
+	if !withCover {
+		return m, nil
+	}
 	coverHref := findCoverHref(pkg, opfDir)
 	if coverHref != "" {
 		if data, err := readFromZip(r, coverHref); err == nil {
@@ -96,14 +105,14 @@ type opfPackage struct {
 }
 
 type opfMetadata struct {
-	Title       string        `xml:"title"`
-	Language    string        `xml:"language"`
-	Publisher   string        `xml:"publisher"`
-	Date        string        `xml:"date"`
-	Description string        `xml:"description"`
-	Creator     []opfCreator  `xml:"creator"`
-	Identifier  []opfIdent    `xml:"identifier"`
-	Meta        []opfMeta     `xml:"meta"`
+	Title       string       `xml:"title"`
+	Language    string       `xml:"language"`
+	Publisher   string       `xml:"publisher"`
+	Date        string       `xml:"date"`
+	Description string       `xml:"description"`
+	Creator     []opfCreator `xml:"creator"`
+	Identifier  []opfIdent   `xml:"identifier"`
+	Meta        []opfMeta    `xml:"meta"`
 }
 
 type opfCreator struct {
