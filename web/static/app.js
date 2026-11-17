@@ -203,7 +203,9 @@ function openInspector(id) {
       $("#inspector-authors").textContent = (book.authors || []).join(", ");
 
       const seriesEl = $("#inspector-series");
-      seriesEl.textContent = book.series || "";
+      seriesEl.textContent = book.series
+        ? book.series + (book.series_index ? ` #${book.series_index}` : "")
+        : "";
       seriesEl.hidden = !book.series;
 
       const metaEl = $("#inspector-meta");
@@ -236,12 +238,14 @@ function openInspector(id) {
 
       $("#inspector-download").href = `/api/books/${book.id}/file`;
       inspector.hidden = false;
+      setEditMode(false);
       renderInspectorTags();
       render();
     });
 }
 
 function closeInspector() {
+  setEditMode(false);
   inspector.hidden = true;
   selectedBook = null;
   render();
@@ -250,9 +254,128 @@ function closeInspector() {
 $("#inspector-close").addEventListener("click", closeInspector);
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (!calibreModal.hidden) calibreModal.hidden = true;
+  if (!sendModal.hidden) closeSendModal();
+  else if (!calibreModal.hidden) calibreModal.hidden = true;
   else if (!metaModal.hidden) closeMetaModal();
+  else if (!editForm.hidden) setEditMode(false);
   else if (!inspector.hidden) closeInspector();
+});
+
+// ═══════════════════ Manual edit ═══════════════════
+const editForm = $("#inspector-edit");
+const inspectorView = $("#inspector-view");
+const editError = $("#edit-error");
+const editFields = {
+  title: $("#edit-title"),
+  authors: $("#edit-authors"),
+  series: $("#edit-series"),
+  series_index: $("#edit-series-index"),
+  publisher: $("#edit-publisher"),
+  pub_date: $("#edit-pubdate"),
+  isbn: $("#edit-isbn"),
+  language: $("#edit-language"),
+  description: $("#edit-description"),
+};
+let editOriginal = null;
+
+function setEditMode(on) {
+  editForm.hidden = !on;
+  inspectorView.hidden = on;
+  editError.hidden = true;
+  $(".inspector-label").textContent = on ? "Editar Livro" : "Detalhes do Livro";
+}
+
+// Values as the form shows them, so "changed" means the user actually edited the field.
+function editValuesFrom(book) {
+  return {
+    title: book.title || "",
+    authors: (book.authors || []).join("\n"),
+    series: book.series || "",
+    series_index: book.series ? String(book.series_index || "") : "",
+    publisher: book.publisher || "",
+    pub_date: (book.pub_date || "").slice(0, 10),
+    isbn: book.isbn || "",
+    language: book.language || "",
+    description: htmlToText(book.description),
+  };
+}
+
+$("#inspector-edit-btn").addEventListener("click", () => {
+  if (!selectedBook) return;
+  editOriginal = editValuesFrom(selectedBook);
+  const lang = editFields.language;
+  if (editOriginal.language && !lang.querySelector(`option[value="${CSS.escape(editOriginal.language)}"]`)) {
+    lang.add(new Option(langName(editOriginal.language), editOriginal.language));
+  }
+  for (const [k, el] of Object.entries(editFields)) el.value = editOriginal[k];
+  fetch("/api/series")
+    .then((r) => r.json())
+    .then((list) => {
+      $("#series-suggestions").innerHTML = (list || []).map((s) => `<option value="${esc(s.name)}">`).join("");
+    });
+  setEditMode(true);
+  editFields.title.focus();
+});
+
+$("#edit-cancel").addEventListener("click", () => setEditMode(false));
+
+editForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!selectedBook) return;
+  const cur = {};
+  for (const [k, el] of Object.entries(editFields)) cur[k] = el.value.trim();
+
+  const body = {};
+  for (const k of Object.keys(editFields)) {
+    if (cur[k] === editOriginal[k].trim()) continue;
+    if (k === "authors") body.authors = cur.authors.split("\n").map((a) => a.trim()).filter(Boolean);
+    else if (k === "series_index") body.series_index = cur.series_index === "" ? 0 : parseFloat(cur.series_index);
+    else body[k] = cur[k];
+  }
+  if (body.series === "") body.series_index = 0;
+
+  if (Object.keys(body).length === 0) {
+    setEditMode(false);
+    return;
+  }
+  if (body.authors && body.authors.length === 0) return showEditError("Informe ao menos um autor.");
+  if (body.series_index !== undefined && Number.isNaN(body.series_index)) return showEditError("Numero da serie invalido.");
+
+  const saveBtn = $("#edit-save");
+  saveBtn.disabled = true;
+  fetch(`/api/books/${selectedBook.id}/metadata`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+    .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then(() => {
+      openInspector(selectedBook.id);
+      loadBooks();
+    })
+    .catch((err) => showEditError(err.message))
+    .finally(() => (saveBtn.disabled = false));
+});
+
+function showEditError(msg) {
+  editError.textContent = msg;
+  editError.hidden = false;
+}
+
+$("#edit-cover-file").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file || !selectedBook) return;
+  const id = selectedBook.id;
+  fetch(`/api/books/${id}/cover`, { method: "PUT", body: file })
+    .then((r) => (r.ok ? null : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then(() => {
+      coverVersion[id] = Date.now();
+      selectedBook.has_cover = true;
+      $("#inspector-cover").innerHTML = `<img src="${coverUrl(selectedBook)}" alt="">`;
+      loadBooks();
+    })
+    .catch((err) => showEditError(err.message));
 });
 
 // ═══════════════════ Status change ═══════════════════
@@ -411,7 +534,8 @@ function formatSize(bytes) {
   if (!bytes) return "";
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1048576) return (bytes / 1024).toFixed(0) + " KB";
-  return (bytes / 1048576).toFixed(1) + " MB";
+  if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + " MB";
+  return (bytes / 1073741824).toFixed(1) + " GB";
 }
 
 function langName(code) {
@@ -903,6 +1027,310 @@ function pollCalibre() {
   };
   tick();
 }
+
+// ═══════════════════ Send to device ═══════════════════
+const sendModal = $("#send-modal");
+const sendDeviceList = $("#send-device-list");
+const sendConfig = $("#send-device-config");
+const sendKind = $("#send-kind");
+const sendFolder = $("#send-folder");
+const sendBookList = $("#send-book-list");
+const sendFilter = $("#send-filter");
+const sendGo = $("#send-go");
+const sendStatus = $("#send-status");
+
+const sendState = {
+  devices: [],
+  profiles: {},
+  deviceId: "",
+  books: [],
+  checked: new Set(),
+  results: {},
+  converter: false,
+};
+
+const SEND_RESULT = { sent: "enviado", exists: "ja estava", unsupported: "formato incompativel", error: "erro" };
+
+$("#send-open").addEventListener("click", () => openSendModal([]));
+$("#inspector-send").addEventListener("click", () => selectedBook && openSendModal([selectedBook.id]));
+for (const id of ["#send-close", "#send-cancel"]) $(id).addEventListener("click", closeSendModal);
+sendModal.addEventListener("click", (e) => {
+  if (e.target === sendModal) closeSendModal();
+});
+$("#send-refresh").addEventListener("click", loadDevices);
+
+function openSendModal(preselect) {
+  sendState.checked = new Set(preselect);
+  sendState.results = {};
+  sendFilter.value = "";
+  setSendStatus("");
+  sendModal.hidden = false;
+  fetch("/api/books?sort=title")
+    .then((r) => r.json())
+    .then((data) => {
+      sendState.books = data.books || [];
+      renderSendBooks();
+    });
+  loadDevices();
+}
+
+function closeSendModal() {
+  sendModal.hidden = true;
+}
+
+function setSendStatus(text, isError) {
+  sendStatus.textContent = text;
+  sendStatus.classList.toggle("error", !!isError);
+}
+
+function loadDevices() {
+  sendDeviceList.innerHTML = `<li class="send-empty">Procurando...</li>`;
+  fetch("/api/devices")
+    .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then((data) => {
+      sendState.devices = data.devices || [];
+      sendState.profiles = data.profiles || {};
+      sendState.converter = !!data.converter;
+      sendKind.innerHTML = Object.values(sendState.profiles)
+        .map((p) => `<option value="${esc(p.kind)}">${esc(p.label)}</option>`)
+        .join("");
+      if (!sendState.devices.some((d) => d.id === sendState.deviceId)) {
+        sendState.deviceId = sendState.devices.length ? sendState.devices[0].id : "";
+      }
+      renderDevices();
+      selectDevice(sendState.deviceId);
+    })
+    .catch((err) => {
+      sendDeviceList.innerHTML = `<li class="send-empty">Erro ao listar dispositivos: ${esc(err.message)}</li>`;
+    });
+}
+
+function renderDevices() {
+  if (sendState.devices.length === 0) {
+    sendDeviceList.innerHTML = `<li class="send-empty">
+      Nenhum dispositivo encontrado. Conecte o e-reader pelo cabo (ou o cartao SD no leitor) e clique em <strong>Atualizar</strong>.<br><br>
+      Boox e outros leitores Android usam MTP e nao aparecem como disco; Kindles mais novos podem ter o mesmo problema no Mac.
+    </li>`;
+    return;
+  }
+  sendDeviceList.innerHTML = sendState.devices
+    .map((d) => {
+      const kind = deviceKind(d);
+      const label = (sendState.profiles[kind] || d).label;
+      const free = d.total_bytes ? `${formatSize(d.free_bytes)} livres de ${formatSize(d.total_bytes)}` : "";
+      return `<li class="send-device${d.id === sendState.deviceId ? " selected" : ""}" data-device="${esc(d.id)}">
+        <div class="send-device-name">${esc(d.name)}</div>
+        <div class="send-device-info">
+          <span class="send-kind-badge" data-kind="${esc(kind)}">${esc(label)}</span>
+          ${free ? `<span>${esc(free)}</span>` : ""}
+        </div>
+      </li>`;
+    })
+    .join("");
+}
+
+sendDeviceList.addEventListener("click", (e) => {
+  const li = e.target.closest(".send-device");
+  if (li) selectDevice(li.dataset.device);
+});
+
+function currentDevice() {
+  return sendState.devices.find((d) => d.id === sendState.deviceId);
+}
+
+// The user's type/folder choices are remembered per volume name.
+function prefKey(d, what) {
+  return `lb-dev-${what}:${d.name}`;
+}
+function loadPref(d, what) {
+  try { return localStorage.getItem(prefKey(d, what)); } catch { return null; }
+}
+function savePref(d, what, val) {
+  try { localStorage.setItem(prefKey(d, what), val); } catch {}
+}
+
+function deviceKind(d) {
+  const saved = loadPref(d, "kind");
+  return saved && sendState.profiles[saved] ? saved : d.kind;
+}
+
+function selectDevice(id) {
+  sendState.deviceId = id;
+  sendState.results = {};
+  sendDeviceList.querySelectorAll(".send-device").forEach((li) =>
+    li.classList.toggle("selected", li.dataset.device === id)
+  );
+  const d = currentDevice();
+  sendConfig.hidden = !d;
+  if (d) {
+    const kind = deviceKind(d);
+    sendKind.value = kind;
+    const savedFolder = loadPref(d, "folder");
+    sendFolder.value = savedFolder !== null ? savedFolder : sendState.profiles[kind].folder;
+    renderProfileInfo();
+  }
+  renderSendBooks();
+}
+
+sendKind.addEventListener("change", () => {
+  const d = currentDevice();
+  if (!d) return;
+  savePref(d, "kind", sendKind.value);
+  sendFolder.value = sendState.profiles[sendKind.value].folder;
+  savePref(d, "folder", sendFolder.value);
+  sendState.results = {};
+  renderDevices();
+  renderProfileInfo();
+  renderSendBooks();
+});
+sendFolder.addEventListener("change", () => {
+  const d = currentDevice();
+  if (d) savePref(d, "folder", sendFolder.value.trim());
+});
+
+function currentProfile() {
+  return currentDevice() ? sendState.profiles[sendKind.value] : null;
+}
+
+function convertible(p) {
+  return sendState.converter && p && p.convert ? Object.entries(p.convert) : [];
+}
+
+function renderProfileInfo() {
+  const p = currentProfile();
+  const conv = convertible(p);
+  let formats = p ? p.formats.map((f) => f.toUpperCase()).join(", ") : "";
+  if (conv.length) formats += ", " + conv.map(([from]) => from.toUpperCase()).join(", ");
+  $("#send-formats").textContent = p ? `Formatos aceitos: ${formats}` : "";
+
+  const note = $("#send-profile-note");
+  let text = "";
+  if (conv.length) {
+    text = conv.map(([from, to]) => `${from.toUpperCase()} sera convertido para ${to.toUpperCase()} com o Calibre.`).join(" ") +
+      " A primeira conversao de cada livro leva alguns segundos.";
+  } else if (p && p.note) {
+    text = p.note;
+  }
+  note.textContent = text;
+  note.hidden = !text;
+}
+
+function bookSupported(b) {
+  const p = currentProfile();
+  if (!p) return true;
+  const f = (b.format || "").toLowerCase();
+  return p.formats.includes(f) || convertible(p).some(([from]) => from === f);
+}
+
+function renderSendBooks() {
+  const q = sendFilter.value.trim().toLowerCase();
+  const visible = sendState.books.filter(
+    (b) => !q || b.title.toLowerCase().includes(q) || (b.authors || []).join(" ").toLowerCase().includes(q)
+  );
+  sendBookList.innerHTML = visible
+    .map((b) => {
+      const ok = bookSupported(b);
+      const res = sendState.results[b.id];
+      let resLabel = res ? SEND_RESULT[res.status] || res.status : "";
+      if (res && res.converted && res.status === "sent") resLabel = "convertido e enviado";
+      return `<li class="send-book${ok ? "" : " incompatible"}" data-book="${b.id}">
+        <input type="checkbox" ${sendState.checked.has(b.id) ? "checked" : ""} aria-label="Selecionar ${esc(b.title)}">
+        <div class="send-book-text">
+          <div class="send-book-title">${esc(b.title)}</div>
+          <div class="send-book-author">${esc((b.authors || []).join(", "))}</div>
+        </div>
+        <span class="list-format list-format-${esc((b.format || "").toLowerCase())}">${esc((b.format || "").toUpperCase())}</span>
+        <span class="send-result" data-status="${res ? esc(res.status) : ""}" title="${res && res.error ? esc(res.error) : ""}">${esc(resLabel)}</span>
+      </li>`;
+    })
+    .join("");
+  updateSendButton();
+}
+
+sendFilter.addEventListener("input", renderSendBooks);
+
+sendBookList.addEventListener("click", (e) => {
+  const li = e.target.closest(".send-book");
+  if (!li) return;
+  const id = parseInt(li.dataset.book);
+  const cb = li.querySelector("input");
+  if (e.target !== cb) cb.checked = !cb.checked;
+  if (cb.checked) sendState.checked.add(id);
+  else sendState.checked.delete(id);
+  updateSendButton();
+});
+
+$("#send-all").addEventListener("click", () => {
+  sendBookList.querySelectorAll(".send-book:not(.incompatible)").forEach((li) => sendState.checked.add(parseInt(li.dataset.book)));
+  renderSendBooks();
+});
+$("#send-none").addEventListener("click", () => {
+  sendState.checked.clear();
+  renderSendBooks();
+});
+
+function updateSendButton() {
+  const n = sendState.checked.size;
+  sendGo.disabled = n === 0 || !currentDevice();
+  sendGo.textContent = n ? `Enviar ${n} livro${n > 1 ? "s" : ""}` : "Enviar";
+}
+
+sendGo.addEventListener("click", () => {
+  const d = currentDevice();
+  if (!d || sendState.checked.size === 0) return;
+  sendGo.disabled = true;
+  const willConvert = sendState.books.some((b) => {
+    const p = currentProfile();
+    return sendState.checked.has(b.id) && p && !p.formats.includes((b.format || "").toLowerCase()) && bookSupported(b);
+  });
+  setSendStatus(willConvert ? `Convertendo com o Calibre e copiando para ${d.name}...` : `Copiando para ${d.name}...`);
+  fetch("/api/devices/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      device: d.id,
+      kind: sendKind.value,
+      folder: sendFolder.value.trim(),
+      book_ids: [...sendState.checked],
+    }),
+  })
+    .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then((data) => {
+      const counts = {};
+      for (const res of data.results || []) {
+        sendState.results[res.book_id] = res;
+        counts[res.status] = (counts[res.status] || 0) + 1;
+      }
+      d.free_bytes = data.free_bytes || d.free_bytes;
+      renderDevices();
+      renderSendBooks();
+      const parts = [];
+      if (counts.sent) parts.push(`${counts.sent} enviado${counts.sent > 1 ? "s" : ""}`);
+      if (counts.exists) parts.push(`${counts.exists} ja estava${counts.exists > 1 ? "m" : ""} la`);
+      if (counts.unsupported) parts.push(`${counts.unsupported} em formato incompativel`);
+      if (counts.error) parts.push(`${counts.error} com erro`);
+      setSendStatus(parts.join(" · "), !!counts.error);
+    })
+    .catch((err) => setSendStatus(err.message, true))
+    .finally(updateSendButton);
+});
+
+$("#send-eject").addEventListener("click", () => {
+  const d = currentDevice();
+  if (!d) return;
+  setSendStatus(`Ejetando ${d.name}...`);
+  fetch("/api/devices/eject", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ device: d.id }),
+  })
+    .then((r) => (r.ok ? null : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then(() => {
+      setSendStatus(`${d.name} pode ser desconectado.`);
+      loadDevices();
+    })
+    .catch((err) => setSendStatus("Nao foi possivel ejetar: " + err.message, true));
+});
 
 // ═══════════════════ Theme Toggle ═══════════════════
 const themeToggle = $("#theme-toggle");

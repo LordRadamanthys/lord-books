@@ -1316,6 +1316,62 @@ body {
 }
 .meta-status.error { color: var(--danger); }
 
+.catalog-count { white-space: nowrap; }
+/* With the details panel open the catalog column is narrow; drop the decorations first. */
+.app-body:has(.inspector:not([hidden])) .sort-label,
+.app-body:has(.inspector:not([hidden])) .catalog-sep { display: none; }
+.app-body:has(.inspector:not([hidden])) .catalog-header { gap: 8px; }
+.app-body:has(.inspector:not([hidden])) .catalog-header .view-toggle { margin-left: auto; }
+.app-body:has(.inspector:not([hidden])) .sort-wrap { margin-left: auto; }
+
+/* ═══════════════════ Edit form ═══════════════════ */
+.inspector-edit { display: flex; flex-direction: column; gap: 10px; }
+.edit-cover-btn { align-self: flex-start; margin-bottom: 4px; }
+.edit-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.edit-field > span {
+  font-family: var(--font-mono);
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.edit-field > span em { font-style: normal; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.edit-field input, .edit-field textarea, .edit-field select {
+  width: 100%;
+  padding: 6px 8px;
+  font-family: var(--font-serif);
+  font-size: .92rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  outline: none;
+  resize: vertical;
+}
+.edit-field input:focus, .edit-field textarea:focus, .edit-field select:focus { border-color: var(--primary); }
+#edit-title { font-weight: 700; font-size: 1rem; }
+#edit-isbn, #edit-pubdate, #edit-series-index { font-family: var(--font-mono); font-size: .8rem; }
+.edit-row { display: flex; gap: 8px; }
+.edit-field--grow { flex: 1; }
+.edit-field--num { width: 64px; }
+.edit-field--date { width: 112px; }
+.edit-field--lang { width: 112px; }
+.edit-error {
+  font-family: var(--font-mono);
+  font-size: .66rem;
+  font-weight: 600;
+  color: var(--danger);
+}
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
 /* ═══════════════════ Sort ═══════════════════ */
 .sort-wrap {
   display: flex;
@@ -1411,6 +1467,123 @@ body {
   color: var(--danger);
 }
 
+/* ═══════════════════ Send to device ═══════════════════ */
+.send-body { grid-template-columns: 300px 1fr; }
+.send-devices {
+  border-right: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+.send-books { display: flex; flex-direction: column; min-height: 0; }
+.send-col-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.send-col-head > span { flex: 1; }
+.send-refresh { padding: 4px 8px; }
+.send-filter { flex: 1; padding: 5px 8px; font-size: .88rem; }
+
+.send-device-list { list-style: none; padding: 0; }
+.send-device {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: background .1s;
+}
+.send-device:hover { background: var(--bg); }
+.send-device.selected { background: rgba(74,124,125,.1); box-shadow: inset 3px 0 0 var(--primary); }
+.send-device-name { font-weight: 700; font-size: .95rem; color: var(--ink); }
+.send-device-info {
+  margin-top: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: .6rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+.send-kind-badge {
+  padding: 1px 5px;
+  border-radius: 2px;
+  color: #fff;
+  background: var(--tertiary);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.send-kind-badge[data-kind="kindle"] { background: #3B4A55; }
+.send-kind-badge[data-kind="kobo"] { background: var(--secondary); }
+.send-kind-badge[data-kind="xteink"] { background: var(--primary); }
+.send-empty {
+  padding: 18px 14px;
+  font-size: .88rem;
+  font-weight: 500;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}
+.send-empty strong { color: var(--ink-soft); }
+
+.send-device-config {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.send-note {
+  font-family: var(--font-mono);
+  font-size: .64rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}
+.send-note--warn { color: var(--secondary); }
+
+.send-book-list { list-style: none; padding: 0; overflow-y: auto; flex: 1; }
+.send-book {
+  display: grid;
+  grid-template-columns: 18px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+}
+.send-book:hover { background: var(--bg); }
+.send-book input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
+.send-book.incompatible { opacity: .45; }
+.send-book-title {
+  font-size: .9rem;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.send-book-author { font-size: .82rem; font-weight: 500; color: var(--ink-soft); }
+.send-book-text { min-width: 0; }
+.send-book-text > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.send-result {
+  font-family: var(--font-mono);
+  font-size: .6rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.send-result[data-status="sent"] { color: var(--primary); }
+.send-result[data-status="exists"] { color: var(--ink-faint); }
+.send-result[data-status="unsupported"], .send-result[data-status="error"] { color: var(--danger); }
+
 /* ═══════════════════ Dark Theme ═══════════════════ */
 [data-theme="dark"] {
   --bg: #1A1918;
@@ -1496,4 +1669,6 @@ body {
   .modal { height: 100%; border-radius: 0; }
   .modal-body { grid-template-columns: 1fr; grid-template-rows: 40% 1fr; }
   .meta-results { border-right: none; border-bottom: 1px solid var(--border); }
+  .send-body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .send-devices { border-right: none; border-bottom: 1px solid var(--border); max-height: 45vh; }
 }

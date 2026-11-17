@@ -384,6 +384,8 @@ type MetadataUpdate struct {
 	Language    *string
 	Description *string
 	CoverPath   *string
+	SeriesName  *string // "" removes the book from its series
+	SeriesIndex *float64
 }
 
 // UpdateMetadata changes only the fields that are set; non-empty Authors replaces the author list.
@@ -409,6 +411,22 @@ func (d *DB) UpdateMetadata(ctx context.Context, id int, m MetadataUpdate) error
 	add("language", m.Language)
 	add("description", m.Description)
 	add("cover_path", m.CoverPath)
+	if m.SeriesName != nil {
+		name := strings.TrimSpace(*m.SeriesName)
+		if name == "" {
+			sets = append(sets, "series_id = NULL")
+		} else {
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO series(name) VALUES(?)`, name); err != nil {
+				return err
+			}
+			sets = append(sets, "series_id = (SELECT id FROM series WHERE name = ?)")
+			args = append(args, name)
+		}
+	}
+	if m.SeriesIndex != nil {
+		sets = append(sets, "series_index = ?")
+		args = append(args, *m.SeriesIndex)
+	}
 	sets = append(sets, "date_modified = datetime('now')")
 	args = append(args, id)
 

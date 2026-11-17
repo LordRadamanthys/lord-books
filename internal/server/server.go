@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -44,9 +45,13 @@ func New(web fs.FS, store *db.DB, lib *library.Library, meta *metadata.Client) h
 	mux.HandleFunc("POST /api/dialog/folder", s.pickFolder)
 	mux.HandleFunc("GET /api/metadata/search", s.searchMetadata)
 	mux.HandleFunc("POST /api/books/{id}/metadata", s.applyMetadata)
+	mux.HandleFunc("PUT /api/books/{id}/cover", s.uploadCover)
+	mux.HandleFunc("GET /api/devices", s.listDevices)
+	mux.HandleFunc("POST /api/devices/send", s.sendToDevice)
+	mux.HandleFunc("POST /api/devices/eject", s.ejectDevice)
 
 	mux.Handle("/", http.FileServerFS(web))
-	return mux
+	return guard(mux)
 }
 
 type server struct {
@@ -155,7 +160,7 @@ func (s *server) bookFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no file", 404)
 		return
 	}
-	w.Header().Set("Content-Disposition", `attachment; filename="`+book.Title+"."+book.Format+`"`)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": book.Title + "." + book.Format}))
 	http.ServeFile(w, r, book.FilePath)
 }
 
@@ -243,7 +248,7 @@ func (s *server) uploadBooks(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		res, err := s.lib.Import(r.Context(), tmp.Name())
+		res, err := s.lib.Import(r.Context(), tmp.Name(), filepath.Base(fh.Filename))
 		os.Remove(tmp.Name())
 		if err != nil {
 			results = append(results, map[string]any{
@@ -410,6 +415,52 @@ func (s *server) startCalibreImport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, progress)
 }
 
+// uploadCover replaces a book's cover with the image sent as the raw request body.
+func (s *server) uploadCover(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", 400)
+		return
+	}
+	book, err := s.db.GetBook(r.Context(), id)
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 15<<20))
+	if err != nil {
+		http.Error(w, "imagem muito grande (máx. 15 MB)", 413)
+		return
+	}
+	var ext string
+	switch http.DetectContentType(data) {
+	case "image/jpeg":
+		ext = ".jpg"
+	case "image/png":
+		ext = ".png"
+	case "image/webp":
+		ext = ".webp"
+	case "image/gif":
+		ext = ".gif"
+	default:
+		http.Error(w, "o arquivo não é uma imagem JPG, PNG, WEBP ou GIF", 415)
+		return
+	}
+	coverPath := filepath.Join(filepath.Dir(book.FilePath), "cover"+ext)
+	if err := os.WriteFile(coverPath, data, 0o644); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if err := s.db.UpdateMetadata(r.Context(), id, db.MetadataUpdate{CoverPath: &coverPath}); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if book.CoverPath != "" && book.CoverPath != coverPath {
+		os.Remove(book.CoverPath)
+	}
+	w.WriteHeader(204)
+}
+
 func (s *server) pickFolder(w http.ResponseWriter, r *http.Request) {
 	// Opening a window on the user's desktop must only be triggered by our own page:
 	// a JSON body forces a CORS preflight for other origins, and Sec-Fetch-Site rejects them outright.
@@ -476,15 +527,34 @@ func (s *server) applyMetadata(w http.ResponseWriter, r *http.Request) {
 		PubDate     *string  `json:"pub_date"`
 		Language    *string  `json:"language"`
 		Description *string  `json:"description"`
+		SeriesName  *string  `json:"series"`
+		SeriesIndex *float64 `json:"series_index"`
 		CoverURL    string   `json:"cover_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad json", 400)
 		return
 	}
-	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
-		http.Error(w, "title cannot be empty", 400)
-		return
+	if req.Title != nil {
+		t := strings.TrimSpace(*req.Title)
+		if t == "" {
+			http.Error(w, "o título não pode ficar vazio", 400)
+			return
+		}
+		req.Title = &t
+	}
+	if req.Authors != nil {
+		var clean []string
+		for _, a := range req.Authors {
+			if a = strings.TrimSpace(a); a != "" {
+				clean = append(clean, a)
+			}
+		}
+		if len(clean) == 0 {
+			http.Error(w, "informe ao menos um autor", 400)
+			return
+		}
+		req.Authors = clean
 	}
 
 	upd := db.MetadataUpdate{
@@ -495,6 +565,8 @@ func (s *server) applyMetadata(w http.ResponseWriter, r *http.Request) {
 		PubDate:     req.PubDate,
 		Language:    req.Language,
 		Description: req.Description,
+		SeriesName:  req.SeriesName,
+		SeriesIndex: req.SeriesIndex,
 	}
 
 	var oldCover string

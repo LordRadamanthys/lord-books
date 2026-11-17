@@ -32,7 +32,9 @@ type ImportResult struct {
 	Reason  string
 }
 
-func (lib *Library) Import(ctx context.Context, srcPath string) (*ImportResult, error) {
+// Import adds srcPath to the library. origName is the file's original name, used for the
+// title when the file has no metadata (uploads arrive as temp files with random names).
+func (lib *Library) Import(ctx context.Context, srcPath, origName string) (*ImportResult, error) {
 	hash, size, dup, err := lib.checkDuplicate(ctx, srcPath)
 	if err != nil || dup {
 		return dupResult(dup), err
@@ -45,7 +47,7 @@ func (lib *Library) Import(ctx context.Context, srcPath string) (*ImportResult, 
 	}
 
 	in := db.InsertBook{
-		Title:   titleFromMeta(meta, srcPath),
+		Title:   titleFromMeta(meta, origName),
 		Authors: authorsFromMeta(meta),
 	}
 	var cover []byte
