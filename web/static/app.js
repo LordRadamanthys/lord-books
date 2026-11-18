@@ -1887,6 +1887,59 @@ function scheduleNetworkPoll(active) {
   if (active) net.timer = setTimeout(() => refreshNetwork(false), netModal.hidden ? 5000 : 2000);
 }
 
+// ═══════════════════ Sidebar collapse ═══════════════════
+const appBody = $(".app-body");
+const sidebarToggle = $("#sidebar-toggle");
+const sidebarScrim = $("#sidebar-scrim");
+const narrowScreen = window.matchMedia("(max-width: 768px)");
+
+// Wide screens: the sidebar collapses in place and the choice is remembered.
+// Narrow screens: it is hidden by default and opens over the catalog.
+function sidebarVisible() {
+  return narrowScreen.matches ? appBody.classList.contains("sidebar-open") : !appBody.classList.contains("sidebar-collapsed");
+}
+
+function updateSidebarToggle() {
+  const open = sidebarVisible();
+  sidebarToggle.setAttribute("aria-expanded", String(open));
+  sidebarToggle.setAttribute("aria-label", open ? "Recolher menu lateral" : "Mostrar menu lateral");
+  sidebarScrim.hidden = !(narrowScreen.matches && open);
+}
+
+function setSidebar(open) {
+  if (narrowScreen.matches) {
+    appBody.classList.toggle("sidebar-open", open);
+  } else {
+    appBody.classList.toggle("sidebar-collapsed", !open);
+    try { localStorage.setItem("lb-sidebar", open ? "open" : "collapsed"); } catch {}
+  }
+  updateSidebarToggle();
+}
+
+try {
+  if (localStorage.getItem("lb-sidebar") === "collapsed") appBody.classList.add("sidebar-collapsed");
+} catch {}
+updateSidebarToggle();
+
+sidebarToggle.addEventListener("click", () => setSidebar(!sidebarVisible()));
+sidebarScrim.addEventListener("click", () => setSidebar(false));
+narrowScreen.addEventListener("change", () => {
+  appBody.classList.remove("sidebar-open");
+  updateSidebarToggle();
+});
+// Picking a collection on a narrow screen closes the overlay so the books show.
+$(".sidebar").addEventListener("click", (e) => {
+  if (narrowScreen.matches && e.target.closest(".nav-item, .sidebar-tag, .sidebar-calibre, .sidebar-import")) setSidebar(false);
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "\\") {
+    e.preventDefault();
+    setSidebar(!sidebarVisible());
+  } else if (e.key === "Escape" && narrowScreen.matches && sidebarVisible()) {
+    setSidebar(false);
+  }
+});
+
 // ═══════════════════ Theme Toggle ═══════════════════
 const themeToggle = $("#theme-toggle");
 const moonSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>`;

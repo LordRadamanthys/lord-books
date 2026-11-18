@@ -53,7 +53,32 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overflow-x: hidden;
+  transition: width .22s ease, margin-left .22s ease;
 }
+/* Collapsed: slide the whole column out so the catalog takes the space. */
+.app-body.sidebar-collapsed .sidebar {
+  margin-left: -224px;
+  visibility: hidden;
+  transition: margin-left .22s ease, visibility 0s linear .22s;
+}
+
+.sidebar-toggle {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: color .1s, border-color .1s, background .1s;
+}
+.sidebar-toggle:hover { color: var(--ink); border-color: var(--ink-soft); background: var(--bg); }
+.sidebar-scrim { display: none; }
 
 .sidebar-brand {
   padding: 28px 22px 22px;
@@ -540,6 +565,15 @@ body {
 .card-bar[data-status="read"] { background: var(--secondary); }
 
 /* ═══════════════════ List View ═══════════════════ */
+/* Every row is its own grid, so columns must not size to their content ("Lendo" vs
+   "Quero Ler" would shift a row). Fixed format/status widths and minmax(0, …) text
+   columns give every row the same grid. */
+.books-list {
+  --list-cols: 42px minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) 64px 96px;
+  --list-cols-narrow: 36px minmax(0, 1fr) 64px 96px;
+}
+.list-header span:nth-child(5) { text-align: center; }
+.list-header span:nth-child(6) { text-align: right; }
 .books-list {
   list-style: none;
   padding: 0;
@@ -547,7 +581,7 @@ body {
 
 .list-header {
   display: grid;
-  grid-template-columns: 42px 1.5fr 1fr 1fr auto auto;
+  grid-template-columns: var(--list-cols);
   gap: 0 14px;
   align-items: center;
   padding: 6px 8px;
@@ -562,7 +596,7 @@ body {
 
 .list-row {
   display: grid;
-  grid-template-columns: 42px 1.5fr 1fr 1fr auto auto;
+  grid-template-columns: var(--list-cols);
   gap: 0 14px;
   align-items: center;
   padding: 8px 8px;
@@ -1965,7 +1999,30 @@ body {
 
 /* ═══════════════════ Responsive ═══════════════════ */
 @media (max-width: 768px) {
-  .sidebar { display: none; }
+  /* Narrow screens: the sidebar is hidden by default and opens over the catalog. */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 900;
+    margin-left: -224px;
+    visibility: hidden;
+    box-shadow: 8px 0 30px rgba(0,0,0,.25);
+    transition: margin-left .22s ease, visibility 0s linear .22s;
+  }
+  .app-body.sidebar-open .sidebar {
+    margin-left: 0;
+    visibility: visible;
+    transition: margin-left .22s ease;
+  }
+  .sidebar-scrim:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 899;
+    background: rgba(0,0,0,.35);
+  }
   .inspector {
     position: fixed;
     top: 0;
@@ -1985,7 +2042,7 @@ body {
   }
   .book-card { width: 130px; }
   .list-header, .list-row {
-    grid-template-columns: 36px 1fr auto auto;
+    grid-template-columns: var(--list-cols-narrow);
   }
   .list-header span:nth-child(4),
   .list-row .list-tags,

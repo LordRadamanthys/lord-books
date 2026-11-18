@@ -27,7 +27,8 @@
   <div class="app">
     <div class="app-body">
       <!-- Left Sidebar (Dark) -->
-      <aside class="sidebar">
+      <div id="sidebar-scrim" class="sidebar-scrim" hidden></div>
+      <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
           <span class="brand-name">Lord Books</span>
           <span class="brand-sub">sua biblioteca</span>
@@ -82,6 +83,9 @@
       <!-- Main Content -->
       <main class="main">
         <div class="toolbar">
+          <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Recolher menu lateral" aria-controls="sidebar" aria-expanded="true" title="Menu lateral (Ctrl/Cmd + \)">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+          </button>
           <div class="search-wrap">
             <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
             <input id="search" type="search" placeholder="Buscar livros, autores...">
