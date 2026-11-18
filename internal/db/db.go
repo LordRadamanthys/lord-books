@@ -52,6 +52,7 @@ type Book struct {
 	Tags        []string `json:"tags,omitempty"`
 	DateAdded   string   `json:"date_added"`
 	HasCover    bool     `json:"has_cover"`
+	Progress    float64  `json:"progress,omitempty"` // percent read in the app's reader
 }
 
 type ListFilter struct {
@@ -123,11 +124,12 @@ func (d *DB) ListBooks(ctx context.Context, f ListFilter) ([]Book, int, error) {
 	q := `SELECT DISTINCT b.id, b.title, b.isbn, b.language, b.publisher, b.pub_date,
 		       b.description, b.file_path, b.cover_path, b.file_hash, b.file_size,
 		       b.format, b.rating, b.read_status, COALESCE(s.name,''),
-		       b.series_index, b.date_added
+		       b.series_index, b.date_added, COALESCE(rp.percent, 0)
 		FROM books b
 		LEFT JOIN book_authors ba ON ba.book_id = b.id
 		LEFT JOIN authors a ON a.id = ba.author_id
 		LEFT JOIN series s ON s.id = b.series_id
+		LEFT JOIN reading_progress rp ON rp.book_id = b.id
 		LEFT JOIN book_tags bt ON bt.book_id = b.id
 		WHERE ` + w + `
 		ORDER BY ` + order + `
@@ -146,7 +148,7 @@ func (d *DB) ListBooks(ctx context.Context, f ListFilter) ([]Book, int, error) {
 		if err := rows.Scan(&b.ID, &b.Title, &b.ISBN, &b.Language, &b.Publisher,
 			&b.PubDate, &b.Description, &b.FilePath, &b.CoverPath, &b.FileHash,
 			&b.FileSize, &b.Format, &b.Rating, &b.ReadStatus, &b.SeriesName,
-			&b.SeriesIndex, &b.DateAdded); err != nil {
+			&b.SeriesIndex, &b.DateAdded, &b.Progress); err != nil {
 			return nil, 0, fmt.Errorf("scan book: %w", err)
 		}
 		b.HasCover = b.CoverPath != ""
@@ -263,11 +265,11 @@ func (d *DB) GetBook(ctx context.Context, id int) (*Book, error) {
 	b := &Book{}
 	err := d.conn.QueryRowContext(ctx, `SELECT b.id, b.title, b.isbn, b.language, b.publisher,
 		b.pub_date, b.description, b.file_path, b.cover_path, b.file_hash, b.file_size,
-		b.format, b.rating, b.read_status, COALESCE(s.name,''), b.series_index, b.date_added
-		FROM books b LEFT JOIN series s ON s.id = b.series_id WHERE b.id = ?`, id).Scan(
+		b.format, b.rating, b.read_status, COALESCE(s.name,''), b.series_index, b.date_added, COALESCE(rp.percent, 0)
+		FROM books b LEFT JOIN series s ON s.id = b.series_id LEFT JOIN reading_progress rp ON rp.book_id = b.id WHERE b.id = ?`, id).Scan(
 		&b.ID, &b.Title, &b.ISBN, &b.Language, &b.Publisher, &b.PubDate,
 		&b.Description, &b.FilePath, &b.CoverPath, &b.FileHash, &b.FileSize,
-		&b.Format, &b.Rating, &b.ReadStatus, &b.SeriesName, &b.SeriesIndex, &b.DateAdded)
+		&b.Format, &b.Rating, &b.ReadStatus, &b.SeriesName, &b.SeriesIndex, &b.DateAdded, &b.Progress)
 	if err != nil {
 		return nil, err
 	}

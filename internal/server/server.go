@@ -37,6 +37,9 @@ func New(web fs.FS, store *db.DB, lib *library.Library, meta *metadata.Client, c
 	mux.HandleFunc("DELETE /api/books/{id}", s.deleteBook)
 	mux.HandleFunc("GET /api/books/{id}/cover", s.bookCover)
 	mux.HandleFunc("GET /api/books/{id}/file", s.bookFile)
+	mux.HandleFunc("GET /api/books/{id}/reader", s.readerInfo)
+	mux.HandleFunc("GET /api/books/{id}/content/{path...}", s.readerContent)
+	mux.HandleFunc("PUT /api/books/{id}/progress", s.saveProgress)
 
 	mux.HandleFunc("GET /api/authors", s.listAuthors)
 	mux.HandleFunc("GET /api/series", s.listSeries)
@@ -184,7 +187,13 @@ func (s *server) bookFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no file", 404)
 		return
 	}
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": book.Title + "." + book.Format}))
+	disposition := "attachment"
+	// The reader shows PDFs in the browser's own viewer.
+	if r.URL.Query().Get("inline") == "1" && book.Format == "pdf" {
+		disposition = "inline"
+		w.Header().Set("Content-Type", "application/pdf")
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": book.Title + "." + book.Format}))
 	http.ServeFile(w, r, book.FilePath)
 }
 

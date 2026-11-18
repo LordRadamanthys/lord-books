@@ -107,7 +107,7 @@ function renderGrid() {
           <div class="card-title">${esc(b.title)}</div>
           <div class="card-author">${esc(authors)}</div>
         </div>
-        <div class="card-bar" data-status="${b.read_status}"></div>
+        <div class="card-bar" data-status="${b.read_status}">${b.progress ? `<span class="card-progress" style="width:${Math.min(100, b.progress).toFixed(1)}%"></span>` : ""}</div>
       </div>`;
     })
     .join("");
@@ -187,6 +187,12 @@ document.addEventListener("click", (e) => {
   if (card.closest(".inspector")) return;
   openInspector(parseInt(card.dataset.id));
 });
+// Double-clicking a book opens it in the reader.
+document.addEventListener("dblclick", (e) => {
+  const card = e.target.closest(".book-card[data-id], .list-row[data-id]");
+  if (card && window.openReader) openReader(parseInt(card.dataset.id));
+});
+$("#inspector-read").addEventListener("click", () => selectedBook && window.openReader && openReader(selectedBook.id));
 
 function openInspector(id) {
   fetch(`/api/books/${id}`)
@@ -237,6 +243,13 @@ function openInspector(id) {
         .join("");
 
       $("#inspector-download").href = `/api/books/${book.id}/file`;
+      const readable = ["epub", "pdf"].includes((book.format || "").toLowerCase());
+      $("#inspector-read").disabled = !readable;
+      $("#inspector-read-label").textContent = !readable
+        ? `Leitura de ${(book.format || "").toUpperCase()} indisponivel`
+        : book.progress > 0.5 && book.progress < 99.5
+          ? `Continuar lendo · ${Math.round(book.progress)}%`
+          : book.progress >= 99.5 ? "Ler de novo" : "Ler";
       inspector.hidden = false;
       setEditMode(false);
       renderInspectorTags();

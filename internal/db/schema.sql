@@ -51,3 +51,11 @@ CREATE INDEX IF NOT EXISTS idx_books_file_hash ON books(file_hash);
 CREATE INDEX IF NOT EXISTS idx_books_isbn ON books(isbn);
 CREATE INDEX IF NOT EXISTS idx_books_read_status ON books(read_status);
 CREATE INDEX IF NOT EXISTS idx_books_title ON books(title COLLATE NOCASE);
+
+CREATE TABLE IF NOT EXISTS reading_progress (
+    book_id  INTEGER PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+    spine    INTEGER NOT NULL DEFAULT 0,
+    fraction REAL    NOT NULL DEFAULT 0,
+    percent  REAL    NOT NULL DEFAULT 0,
+    updated  TEXT    NOT NULL DEFAULT (datetime('now'))
+);

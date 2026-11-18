@@ -1324,6 +1324,37 @@ body {
 .app-body:has(.inspector:not([hidden])) .catalog-header .view-toggle { margin-left: auto; }
 .app-body:has(.inspector:not([hidden])) .sort-wrap { margin-left: auto; }
 
+/* ═══════════════════ Read button & progress ═══════════════════ */
+.read-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 11px;
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--primary);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background .12s;
+}
+.read-btn:hover { background: var(--primary-dim); }
+.read-btn:disabled { opacity: .5; cursor: default; }
+.card-bar { position: relative; overflow: hidden; }
+.card-bar .card-progress {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--primary);
+}
+.card-bar[data-status="reading"]:has(.card-progress) { background: var(--border-soft); }
+
 /* ═══════════════════ Edit form ═══════════════════ */
 .inspector-edit { display: flex; flex-direction: column; gap: 10px; }
 .edit-cover-btn { align-self: flex-start; margin-bottom: 4px; }
