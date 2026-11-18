@@ -56,9 +56,16 @@ func writeMessage(w io.Writer, op int, args map[string]any) error {
 	return err
 }
 
-// maxMessage bounds a single JSON message so a misbehaving peer can't make us allocate
-// without limit (book metadata with a cover thumbnail is well under this).
-const maxMessage = 16 << 20
+// Limits on what a reader can make us do. Anything on the network can connect while
+// the server is on, so each value a peer sends is bounded before it sizes anything.
+const (
+	// maxMessage bounds a single JSON message (metadata with a thumbnail is far smaller).
+	maxMessage = 16 << 20
+	// maxBooksOnDevice bounds the book count a reader reports.
+	maxBooksOnDevice = 100_000
+	// maxFetchBytes bounds a book copied back from a reader.
+	maxFetchBytes = 500 << 20
+)
 
 func readMessage(r *bufio.Reader) (message, error) {
 	var digits []byte
@@ -117,10 +124,18 @@ func argBool(m map[string]any, k string) bool {
 	return b
 }
 
+// argInt reads a number from decoded JSON (float64) or from maps we built ourselves.
 func argInt(m map[string]any, k string) int64 {
 	switch v := m[k].(type) {
 	case float64:
+		if v != v || v > 1<<62 || v < -(1<<62) { // NaN or out of int64 range
+			return 0
+		}
 		return int64(v)
+	case int:
+		return int64(v)
+	case int64:
+		return v
 	case string:
 		n, _ := strconv.ParseInt(v, 10, 64)
 		return n

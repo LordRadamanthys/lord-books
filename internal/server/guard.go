@@ -15,6 +15,13 @@ import (
 //     multipart upload) skip CORS preflight, so the browser alone would not stop them.
 func guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The management API has no login: it must only answer this computer, even if
+		// it was started with -addr 0.0.0.0. Readers use the separate OPDS and wireless
+		// ports instead.
+		if !fromLoopback(r.RemoteAddr) {
+			http.Error(w, "o Lord Books só aceita conexões deste computador", http.StatusForbidden)
+			return
+		}
 		if !allowedHost(r.Host) {
 			http.Error(w, "host not allowed", http.StatusForbidden)
 			return
@@ -36,6 +43,15 @@ func guard(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func fromLoopback(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func allowedHost(hostport string) bool {

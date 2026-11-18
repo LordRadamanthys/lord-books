@@ -172,6 +172,11 @@ func listenBroadcast() (*net.UDPConn, error) {
 // answerDiscovery replies to any datagram on a broadcast port, as calibre does, with
 // "calibre wireless device client (on HOST);CONTENT_PORT,DEVICE_PORT".
 func (s *Server) answerDiscovery(udp *net.UDPConn) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("wireless: discovery stopped after an internal error: %v", r)
+		}
+	}()
 	host, _ := os.Hostname()
 	host, _, _ = strings.Cut(host, ".")
 	buf := make([]byte, 128)
@@ -207,17 +212,48 @@ func startAnnouncement(ctx context.Context, port int) *exec.Cmd {
 	return cmd
 }
 
+// maxPendingConns bounds connections still in their handshake, so a flood of
+// connections from the network can't pile up goroutines.
+const maxPendingConns = 4
+
 func (s *Server) acceptLoop(ctx context.Context, ln net.Listener) {
+	slots := make(chan struct{}, maxPendingConns)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		go s.handle(ctx, conn)
+		select {
+		case slots <- struct{}{}:
+			go s.handle(ctx, conn, func() { <-slots })
+		default:
+			conn.Close()
+		}
 	}
 }
 
-func (s *Server) handle(ctx context.Context, conn net.Conn) {
+func (s *Server) handle(ctx context.Context, conn net.Conn, handshakeDone func()) {
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			handshakeDone()
+		}
+	}
+	defer release()
+	// A reader is untrusted input: whatever it sends must not take the whole app down.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("wireless: dropped %s after an internal error: %v", conn.RemoteAddr(), r)
+			conn.Close()
+			s.mu.Lock()
+			if s.sess != nil && s.sess.conn == conn {
+				s.sess = nil
+			}
+			s.mu.Unlock()
+		}
+	}()
+
 	s.mu.Lock()
 	busy := s.sess
 	s.mu.Unlock()
@@ -245,6 +281,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	s.sess, s.lastError = sess, ""
 	s.mu.Unlock()
 	log.Printf("wireless: %s connected from %s", sess.device.Name, conn.RemoteAddr())
+	release() // the handshake slot is free once the device is connected
 
 	sess.keepAlive(ctx)
 

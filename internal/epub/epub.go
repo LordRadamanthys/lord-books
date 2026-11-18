@@ -3,6 +3,7 @@ package epub
 import (
 	"archive/zip"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -40,13 +41,7 @@ func parse(file string, withCover bool) (*Metadata, error) {
 	}
 
 	opfDir := path.Dir(opfPath)
-	opfFile, err := openInZip(r, opfPath)
-	if err != nil {
-		return nil, fmt.Errorf("open opf: %w", err)
-	}
-
-	opfData, err := io.ReadAll(opfFile)
-	opfFile.Close()
+	opfData, err := readFromZip(r, opfPath)
 	if err != nil {
 		return nil, fmt.Errorf("read opf: %w", err)
 	}
@@ -83,7 +78,7 @@ func parse(file string, withCover bool) (*Metadata, error) {
 	}
 	coverHref := findCoverHref(pkg, opfDir)
 	if coverHref != "" {
-		if data, err := readFromZip(r, coverHref); err == nil {
+		if data, err := readFromZipMax(r, coverHref, maxCoverBytes); err == nil {
 			m.CoverData = data
 			m.CoverExt = extFromPath(coverHref)
 		}
@@ -142,12 +137,7 @@ type opfRef struct {
 }
 
 func findOPF(r *zip.ReadCloser) (string, error) {
-	cf, err := openInZip(r, "META-INF/container.xml")
-	if err != nil {
-		return "", fmt.Errorf("no container.xml: %w", err)
-	}
-	data, err := io.ReadAll(cf)
-	cf.Close()
+	data, err := readFromZip(r, "META-INF/container.xml")
 	if err != nil {
 		return "", err
 	}
@@ -208,13 +198,40 @@ func openInZip(r *zip.ReadCloser, name string) (io.ReadCloser, error) {
 	return nil, fmt.Errorf("file not found in zip: %s", name)
 }
 
+// Size caps for files read whole from an EPUB. A tiny crafted zip can expand to
+// gigabytes ("zip bomb"), and a book's structure files and cover are far smaller.
+const (
+	maxDocBytes   = 16 << 20
+	maxCoverBytes = 20 << 20
+)
+
+var errTooBig = errors.New("arquivo grande demais dentro do EPUB")
+
 func readFromZip(r *zip.ReadCloser, name string) ([]byte, error) {
+	return readFromZipMax(r, name, maxDocBytes)
+}
+
+// readFromZipMax checks the declared size first, then also caps the actual read,
+// since the size in a zip header can lie.
+func readFromZipMax(r *zip.ReadCloser, name string, max int64) ([]byte, error) {
+	for _, f := range r.File {
+		if strings.EqualFold(f.Name, name) && f.UncompressedSize64 > uint64(max) {
+			return nil, errTooBig
+		}
+	}
 	rc, err := openInZip(r, name)
 	if err != nil {
 		return nil, err
 	}
 	defer rc.Close()
-	return io.ReadAll(rc)
+	data, err := io.ReadAll(io.LimitReader(rc, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, errTooBig
+	}
+	return data, nil
 }
 
 func resolvePath(dir, href string) string {

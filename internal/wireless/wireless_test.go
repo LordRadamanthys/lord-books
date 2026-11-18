@@ -112,7 +112,7 @@ func TestSessionHandshakeAndSend(t *testing.T) {
 	srv := New("lib-uuid", func() int { return 8080 })
 	srv.listener = ln
 	ctx, cancel := context.WithCancel(context.Background())
-	go srv.handle(ctx, serverSide)
+	go srv.handle(ctx, serverSide, func() {})
 
 	var sess *session
 	for i := 0; i < 100 && sess == nil; i++ {
@@ -197,6 +197,47 @@ func TestDiscoveryReplyMatchesClients(t *testing.T) {
 	m := re.FindStringSubmatch(string(buf[:n]))
 	if m == nil || m[2] != "8080" || m[3] != "9090" {
 		t.Errorf("reply %q does not match the client pattern", buf[:n])
+	}
+}
+
+// A reader announcing an absurd book count used to crash the app (makeslice panic).
+func TestHostileBookCountIsRejected(t *testing.T) {
+	for _, count := range []any{1e15, -5, float64(maxBooksOnDevice + 1)} {
+		srvSide, cli := net.Pipe()
+		go func() {
+			r := bufio.NewReader(cli)
+			for {
+				m, err := readMessage(r)
+				if err != nil {
+					return
+				}
+				switch m.Op {
+				case opGetInitializationInfo:
+					writeMessage(cli, opOK, map[string]any{"versionOK": true, "maxBookContentPacketLen": 4096, "acceptedExtensions": []string{"epub"}})
+				case opGetDeviceInformation:
+					writeMessage(cli, opOK, map[string]any{"device_info": map[string]any{}})
+				case opSetCalibreDeviceInfo, opFreeSpace:
+					writeMessage(cli, opOK, map[string]any{})
+				case opGetBookCount:
+					writeMessage(cli, opOK, map[string]any{"count": count})
+				}
+			}
+		}()
+		s := &session{conn: srvSide, r: bufio.NewReader(srvSide)}
+		if err := s.handshake(); err == nil {
+			t.Errorf("count %v accepted", count)
+		}
+		cli.Close()
+		srvSide.Close()
+	}
+}
+
+func TestArgIntReadsOwnMaps(t *testing.T) {
+	m := map[string]any{"a": int64(457200), "b": 3, "c": float64(12), "d": "7", "e": 1e300}
+	for k, want := range map[string]int64{"a": 457200, "b": 3, "c": 12, "d": 7, "e": 0, "missing": 0} {
+		if got := argInt(m, k); got != want {
+			t.Errorf("argInt(%s) = %d, want %d", k, got, want)
+		}
 	}
 }
 

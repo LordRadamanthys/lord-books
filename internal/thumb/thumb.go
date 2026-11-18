@@ -5,13 +5,18 @@ package thumb
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
+	"io"
 	"os"
 )
+
+// maxPixels allows any real book cover (print-quality covers are ~10 MP).
+const maxPixels = 40_000_000
 
 // FromFile decodes a JPEG, PNG or GIF cover and returns a JPEG no taller than maxHeight
 // (smaller images are kept as they are), with its final width and height.
@@ -21,6 +26,18 @@ func FromFile(path string, maxHeight int) ([]byte, int, int, error) {
 		return nil, 0, 0, err
 	}
 	defer f.Close()
+	// A small file can declare huge dimensions, and decoding allocates width×height×4
+	// bytes; check the header before decoding anything.
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > maxPixels {
+		return nil, 0, 0, fmt.Errorf("capa com dimensões fora do normal (%dx%d)", cfg.Width, cfg.Height)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, 0, err
+	}
 	src, _, err := image.Decode(f)
 	if err != nil {
 		return nil, 0, 0, err

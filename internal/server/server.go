@@ -141,6 +141,18 @@ func (s *server) updateBook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", 400)
 		return
 	}
+	// read_status ends up in HTML attributes, so only the known values are stored.
+	switch req.ReadStatus {
+	case "want", "reading", "read":
+	default:
+		http.Error(w, "status inválido", 400)
+		return
+	}
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" || req.Rating < 0 || req.Rating > 5 {
+		http.Error(w, "título vazio ou nota fora de 0 a 5", 400)
+		return
+	}
 	if err := s.db.UpdateBook(r.Context(), id, req.Title, req.ReadStatus, req.Rating); err != nil {
 		http.Error(w, err.Error(), 500)
 		return

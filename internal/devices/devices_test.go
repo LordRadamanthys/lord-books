@@ -169,6 +169,38 @@ func TestTitleAuthorsFromName(t *testing.T) {
 	}
 }
 
+// A card with a folder that is a symlink to somewhere else on the computer must not
+// let sends, listings or deletions follow it out of the card.
+func TestSymlinkedFolderCannotEscapeDevice(t *testing.T) {
+	outside := t.TempDir()
+	victim := filepath.Join(outside, "importante.epub")
+	os.WriteFile(victim, []byte("keep"), 0o644)
+	dev := Device{Mount: t.TempDir()}
+	if err := os.Symlink(outside, filepath.Join(dev.Mount, "Lord Books")); err != nil {
+		t.Skip("symlinks not supported here:", err)
+	}
+
+	if _, err := Destination(dev, "Lord Books"); err == nil {
+		t.Error("send destination through symlink accepted")
+	}
+	if _, err := Destination(dev, "Lord Books/nova-pasta"); err == nil {
+		t.Error("new folder under a symlink accepted")
+	}
+	if _, _, err := Folders(dev, "Lord Books"); err == nil {
+		t.Error("browsing through symlink accepted")
+	}
+	if err := DeleteBook(dev, "Lord Books/importante.epub"); err == nil {
+		t.Error("delete through symlink accepted")
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Fatal("file outside the device was deleted!")
+	}
+	// Normal folders keep working.
+	if _, err := Destination(dev, "Livros/Novos"); err != nil {
+		t.Errorf("plain new folder refused: %v", err)
+	}
+}
+
 func TestDeviceFileName(t *testing.T) {
 	got := deviceFileName(`O "melhor": livro?`, "Autor/Um", "EPUB")
 	if strings.ContainsAny(got, `/\:*?"<>|`) || !strings.HasSuffix(got, ".epub") {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/LordRadamanthys/lord-books/internal/db"
@@ -49,6 +50,30 @@ func TestDeleteRemovesBookFiles(t *testing.T) {
 	}
 	if _, err := store.GetBook(context.Background(), book.ID); err == nil {
 		t.Error("book still in database")
+	}
+}
+
+// The same file imported many times at once must be added only once.
+func TestConcurrentImportsDoNotDuplicate(t *testing.T) {
+	base := t.TempDir()
+	store, _ := db.Open(filepath.Join(base, "test.db"))
+	defer store.Close()
+	lib := New(store, base)
+	src := filepath.Join(t.TempDir(), "Mesmo.pdf")
+	os.WriteFile(src, []byte("%PDF same bytes"), 0o644)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lib.Import(context.Background(), src, "Mesmo.pdf")
+		}()
+	}
+	wg.Wait()
+	_, total, _ := store.ListBooks(context.Background(), db.ListFilter{})
+	if total != 1 {
+		t.Errorf("%d copies imported, want 1", total)
 	}
 }
 

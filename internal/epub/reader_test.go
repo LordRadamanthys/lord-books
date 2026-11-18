@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -76,6 +77,41 @@ func TestReadStructureEPUB3(t *testing.T) {
 	}
 	if _, _, _, err := OpenFile(p, "../../etc/passwd"); err == nil {
 		t.Error("paths outside the book must not resolve")
+	}
+}
+
+// A 300 KB EPUB whose cover expands to 300 MB used to be read whole into memory.
+func TestZipBombIsNotLoaded(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "bomb.epub")
+	f, _ := os.Create(p)
+	z := zip.NewWriter(f)
+	w, _ := z.Create("META-INF/container.xml")
+	w.Write([]byte(testContainer))
+	w, _ = z.Create("OEBPS/content.opf")
+	w.Write([]byte(`<package><metadata><meta name="cover" content="img"/></metadata><manifest><item id="img" href="cover.jpg" media-type="image/jpeg"/><item id="c" href="c.html" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c"/></spine></package>`))
+	w, _ = z.Create("OEBPS/c.html")
+	w.Write([]byte("<p>x</p>"))
+	w, _ = z.Create("OEBPS/cover.jpg")
+	zero := make([]byte, 1<<20)
+	for i := 0; i < 300; i++ {
+		w.Write(zero)
+	}
+	z.Close()
+	f.Close()
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	m, err := Parse(p)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("metadata should still be read: %v", err)
+	}
+	if len(m.CoverData) != 0 {
+		t.Errorf("oversized cover loaded: %d bytes", len(m.CoverData))
+	}
+	if alloc := after.TotalAlloc - before.TotalAlloc; alloc > 64<<20 {
+		t.Errorf("parsing allocated %d MB", alloc>>20)
 	}
 }
 

@@ -189,9 +189,12 @@ func (s *session) loadBooks() error {
 	if err != nil {
 		return err
 	}
-	count := int(argInt(res, "count"))
-	entries := make([]map[string]any, 0, count)
-	for i := 0; i < count; i++ {
+	count := argInt(res, "count")
+	if count < 0 || count > maxBooksOnDevice {
+		return fmt.Errorf("lista de livros: o aparelho informou %d livros", count)
+	}
+	entries := make([]map[string]any, 0, min(count, 1024))
+	for i := int64(0); i < count; i++ {
 		m, err := s.receive()
 		if err != nil {
 			return fmt.Errorf("lista de livros: %w", err)
@@ -378,6 +381,11 @@ func (s *session) FetchBook(lpath string, w io.Writer) error {
 	n := argInt(m.Args, "fileLength")
 	if n <= 0 {
 		return &peerError{"o aparelho informou um arquivo vazio"}
+	}
+	if n > maxFetchBytes {
+		// The bytes are already on their way; the stream can't be resynced, so drop it.
+		s.closeLocked()
+		return fmt.Errorf("o aparelho informou um arquivo de %d MB (máximo %d MB)", n>>20, maxFetchBytes>>20)
 	}
 	s.conn.SetReadDeadline(time.Now().Add(replyTimeout + time.Duration(n/20000)*time.Second))
 	if _, err := io.CopyN(w, s.r, n); err != nil {

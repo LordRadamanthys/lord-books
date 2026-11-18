@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/LordRadamanthys/lord-books/internal/db"
@@ -19,6 +20,9 @@ type Library struct {
 	db      *db.DB
 	baseDir string
 	calibre calibreJob
+	// storeMu makes "is this file already here? then add it" atomic, so two imports of
+	// the same book at once (e.g. Calibre import plus an upload) can't both add it.
+	storeMu sync.Mutex
 }
 
 func New(store *db.DB, baseDir string) *Library {
@@ -86,6 +90,12 @@ func (lib *Library) checkDuplicate(ctx context.Context, srcPath string) (hash st
 
 // store copies the file into the library tree, writes the cover and inserts the book.
 func (lib *Library) store(ctx context.Context, srcPath, hash string, size int64, in db.InsertBook, cover []byte, coverExt string) (*ImportResult, error) {
+	lib.storeMu.Lock()
+	defer lib.storeMu.Unlock()
+	// Checked again under the lock: another import may have added it meanwhile.
+	if dup, err := lib.db.HashExists(ctx, hash); err != nil || dup {
+		return dupResult(dup), err
+	}
 	ext := strings.ToLower(filepath.Ext(srcPath))
 
 	authorDir := sanitizePath(joinAuthors(in.Authors))

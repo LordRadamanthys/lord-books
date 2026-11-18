@@ -111,7 +111,38 @@ func Destination(d Device, folder string) (string, error) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", errors.New("pasta de destino inválida")
 	}
+	if !resolvesInside(d.Mount, dest) {
+		return "", errors.New("a pasta aponta para fora do dispositivo (atalho)")
+	}
 	return dest, nil
+}
+
+// resolvesInside reports whether p, after following symlinks, is still inside root.
+// A card could carry a symlinked folder pointing elsewhere on the computer; the path
+// is lexically inside the mount but the files would land outside it. p may not exist
+// yet (a new destination folder), so its deepest existing ancestor is checked.
+func resolvesInside(root, p string) bool {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	existing := p
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return false
+		}
+		existing = parent
+	}
+	real, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(realRoot, real)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // System folders that operating systems and cameras create on cards; never book destinations.
