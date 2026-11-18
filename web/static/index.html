@@ -65,6 +65,7 @@
             <input id="file-input" type="file" accept=".epub,.pdf" multiple hidden>
           </label>
           <button id="calibre-open" class="sidebar-calibre">Importar do Calibre</button>
+          <button id="free-open" class="sidebar-calibre">Livros gratis</button>
           <button id="send-open" class="sidebar-calibre">Enviar para dispositivo</button>
           <button id="net-open" class="sidebar-calibre sidebar-wifi">
             Wi-Fi <span id="net-indicator" class="net-indicator" hidden></span>
@@ -320,6 +321,41 @@
         <span id="calibre-status" class="meta-status"></span>
         <button id="calibre-cancel" class="action-btn">Fechar</button>
         <button id="calibre-start" class="meta-apply-btn">Importar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Free (public domain) books modal -->
+  <div id="free-modal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="free-title">
+      <div class="modal-header">
+        <span id="free-title" class="modal-title">Livros gratis (dominio publico)</span>
+        <button id="free-close" class="inspector-close" aria-label="Fechar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <form id="free-form" class="meta-form free-form">
+        <div class="free-sources" role="radiogroup" aria-label="Acervo">
+          <button type="button" class="free-source active" data-source="gutenberg" role="radio" aria-checked="true">Project Gutenberg</button>
+          <button type="button" class="free-source" data-source="standard" role="radio" aria-checked="false">Standard Ebooks</button>
+        </div>
+        <input id="free-query" type="search" class="meta-input meta-input--grow" placeholder="Titulo ou autor">
+        <select id="free-lang" class="sort-select free-lang" aria-label="Idioma">
+          <option value="">Todos os idiomas</option>
+          <option value="pt">Portugues</option>
+          <option value="en">Ingles</option>
+          <option value="es">Espanhol</option>
+          <option value="fr">Frances</option>
+        </select>
+        <button type="submit" class="meta-search-btn">Buscar</button>
+      </form>
+      <p id="free-source-note" class="free-source-note"></p>
+      <div class="free-body">
+        <ul id="free-results" class="free-results"></ul>
+      </div>
+      <div class="modal-footer">
+        <span id="free-status" class="meta-status"></span>
+        <button id="free-done" class="action-btn">Fechar</button>
       </div>
     </div>
   </div>

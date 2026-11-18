@@ -38,12 +38,13 @@ type Status struct {
 
 // Device describes the reader currently connected.
 type Device struct {
-	Name       string   `json:"name"`
-	Kind       string   `json:"kind"`
-	App        string   `json:"app"`
-	Address    string   `json:"address"`
-	Extensions []string `json:"extensions"`
-	FreeBytes  int64    `json:"free_bytes"`
+	Name        string   `json:"name"`
+	Kind        string   `json:"kind"`
+	App         string   `json:"app"`
+	Address     string   `json:"address"`
+	Extensions  []string `json:"extensions"`
+	FreeBytes   int64    `json:"free_bytes"`
+	CoverHeight int      `json:"-"` // thumbnail height the reader asked for
 }
 
 type Server struct {

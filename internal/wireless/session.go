@@ -114,6 +114,10 @@ func (s *session) handshake() error {
 		Address:    s.conn.RemoteAddr().String(),
 		Extensions: argStrings(info, "acceptedExtensions"),
 	}
+	s.device.CoverHeight = int(argInt(info, "coverHeight"))
+	if s.device.CoverHeight <= 0 || s.device.CoverHeight > 2000 {
+		s.device.CoverHeight = 160 // calibre's default thumbnail height
+	}
 	if s.device.Name == "" {
 		s.device.Name = s.device.Kind
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/LordRadamanthys/lord-books/internal/db"
 	"github.com/LordRadamanthys/lord-books/internal/devices"
+	"github.com/LordRadamanthys/lord-books/internal/thumb"
 	"github.com/LordRadamanthys/lord-books/internal/wireless"
 )
 
@@ -172,7 +173,14 @@ func (s *server) sendToWifi(w http.ResponseWriter, r *http.Request, bookIDs []in
 			SeriesIndex: b.SeriesIndex, Description: b.Description, FileHash: b.FileHash,
 			Format: format, DateAdded: b.DateAdded,
 		}
-		queue = append(queue, wireless.Outgoing{Path: src, Lpath: lpath, Metadata: wireless.Metadata(info)})
+		md := wireless.Metadata(info)
+		if b.CoverPath != "" {
+			// Readers show this in their library list without opening the book.
+			if data, w, h, err := thumb.FromFile(b.CoverPath, dev.CoverHeight); err == nil {
+				wireless.Thumbnail(md, data, w, h)
+			}
+		}
+		queue = append(queue, wireless.Outgoing{Path: src, Lpath: lpath, Metadata: md})
 		queued = append(queued, len(results))
 		results = append(results, res)
 		// Same book twice in one request: the second is "exists".

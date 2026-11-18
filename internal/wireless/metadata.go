@@ -1,10 +1,16 @@
 package wireless
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// Thumbnail sets the cover thumbnail in calibre's format, [width, height, base64 JPEG].
+func Thumbnail(md map[string]any, jpegData []byte, w, h int) {
+	md["thumbnail"] = []any{w, h, base64.StdEncoding.EncodeToString(jpegData)}
+}
 
 // BookInfo is what Lord Books knows about a book being sent.
 type BookInfo struct {

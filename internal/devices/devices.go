@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -241,6 +242,11 @@ func Send(ctx context.Context, p Profile, dest string, items []Item, opts SendOp
 					rel, _ := filepath.Rel(opts.Mount, dst)
 					// Recorded so the same book twice in one batch isn't copied twice.
 					opts.OnDevice.Add(DeviceBook{Path: filepath.ToSlash(rel), Format: format, Size: size, Title: it.Title, Authors: it.Authors, hash: hash})
+				}
+				if p.Kind == Kindle && (format == "azw3" || format == "mobi") && opts.Mount != "" {
+					if err := writeKindleThumbnail(opts.Mount, dst, it.Cover); err != nil {
+						log.Printf("kindle thumbnail for %q: %v", it.Title, err)
+					}
 				}
 			}
 		}

@@ -254,7 +254,8 @@ function closeInspector() {
 $("#inspector-close").addEventListener("click", closeInspector);
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (!netModal.hidden) netModal.hidden = true;
+  if (!freeModal.hidden) freeModal.hidden = true;
+  else if (!netModal.hidden) netModal.hidden = true;
   else if (!sendModal.hidden) closeSendModal();
   else if (!calibreModal.hidden) calibreModal.hidden = true;
   else if (!metaModal.hidden) closeMetaModal();
@@ -1616,6 +1617,138 @@ $("#send-eject").addEventListener("click", () => {
       loadDevices();
     })
     .catch((err) => setSendStatus("Nao foi possivel ejetar: " + err.message, true));
+});
+
+// ═══════════════════ Free books ═══════════════════
+const freeModal = $("#free-modal");
+const freeQuery = $("#free-query");
+const freeLang = $("#free-lang");
+const freeResults = $("#free-results");
+const freeStatus = $("#free-status");
+const free = { source: "gutenberg", results: [], seq: 0, added: {} };
+
+const FREE_NOTES = {
+  gutenberg: "Mais de 70 mil livros em dominio publico, inclusive classicos brasileiros e portugueses.",
+  standard: "Classicos em ingles com revisao e diagramacao cuidadosas.",
+};
+
+$("#free-open").addEventListener("click", () => {
+  freeModal.hidden = false;
+  setFreeSource(free.source);
+  freeQuery.focus();
+});
+for (const id of ["#free-close", "#free-done"]) $(id).addEventListener("click", () => (freeModal.hidden = true));
+freeModal.addEventListener("click", (e) => {
+  if (e.target === freeModal) freeModal.hidden = true;
+});
+document.querySelectorAll(".free-source").forEach((b) =>
+  b.addEventListener("click", () => {
+    setFreeSource(b.dataset.source);
+    if (freeQuery.value.trim()) runFreeSearch();
+  })
+);
+
+function setFreeSource(source) {
+  free.source = source;
+  document.querySelectorAll(".free-source").forEach((b) => {
+    const on = b.dataset.source === source;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-checked", String(on));
+  });
+  freeLang.hidden = source !== "gutenberg";
+  $("#free-source-note").textContent = FREE_NOTES[source];
+}
+
+$("#free-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  runFreeSearch();
+});
+freeLang.addEventListener("change", () => freeQuery.value.trim() && runFreeSearch());
+
+function setFreeStatus(text, isError) {
+  freeStatus.textContent = text;
+  freeStatus.classList.toggle("error", !!isError);
+}
+
+function runFreeSearch() {
+  const q = freeQuery.value.trim();
+  if (!q) return;
+  const seq = ++free.seq;
+  const params = new URLSearchParams({ source: free.source, q });
+  if (free.source === "gutenberg" && freeLang.value) params.set("lang", freeLang.value);
+  freeResults.innerHTML = `<li class="free-empty">Buscando...</li>`;
+  setFreeStatus("");
+  fetch("/api/free/search?" + params)
+    .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then((data) => {
+      if (seq !== free.seq) return;
+      free.results = data.results || [];
+      renderFreeResults();
+      const n = free.results.length;
+      setFreeStatus(n ? `${n} resultado${n > 1 ? "s" : ""}` : "");
+    })
+    .catch((err) => {
+      if (seq !== free.seq) return;
+      freeResults.innerHTML = "";
+      setFreeStatus(err.message, true);
+    });
+}
+
+const LANG_SHORT = { pt: "PT", en: "EN", es: "ES", fr: "FR", de: "DE", it: "IT" };
+
+function renderFreeResults() {
+  if (free.results.length === 0) {
+    freeResults.innerHTML = `<li class="free-empty">Nenhum livro encontrado.</li>`;
+    return;
+  }
+  freeResults.innerHTML = free.results
+    .map((r, i) => {
+      const key = r.source + ":" + r.id;
+      const state = free.added[key] || "";
+      const label = { done: "Na biblioteca", busy: "Baixando...", error: "Tentar de novo" }[state] || "Adicionar";
+      const langs = (r.languages || []).map((l) => LANG_SHORT[l] || l.toUpperCase()).join(" · ");
+      const cover = r.cover_url
+        ? `<img src="${esc(r.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:this.closest('li').dataset.title}))">`
+        : `<span>${esc(r.title)}</span>`;
+      return `<li class="free-result" data-idx="${i}" data-title="${esc(r.title)}">
+        <div class="free-cover">${cover}</div>
+        <div class="free-info">
+          <div class="card-title" title="${esc(r.title)}">${esc(r.title)}</div>
+          <div class="card-author">${esc((r.authors || []).join(", "))}</div>
+          <div class="free-meta">${esc(langs)}${r.downloads ? ` · ${r.downloads.toLocaleString("pt-BR")} downloads` : ""}</div>
+        </div>
+        <button type="button" class="action-btn free-add" data-state="${state}" ${state === "busy" || state === "done" ? "disabled" : ""}>${label}</button>
+      </li>`;
+    })
+    .join("");
+}
+
+freeResults.addEventListener("click", (e) => {
+  const btn = e.target.closest(".free-add");
+  if (!btn) return;
+  const r = free.results[parseInt(btn.closest(".free-result").dataset.idx)];
+  const key = r.source + ":" + r.id;
+  free.added[key] = "busy";
+  renderFreeResults();
+  setFreeStatus(`Baixando "${r.title}"...`);
+  fetch("/api/free/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source: r.source, id: r.id }),
+  })
+    .then((res) => (res.ok ? res.json() : res.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then((data) => {
+      free.added[key] = "done";
+      setFreeStatus(data.status === "skipped" ? `"${r.title}" ja estava na biblioteca.` : `"${r.title}" adicionado a biblioteca.`);
+      loadBooks();
+      loadCounts();
+      loadTags();
+    })
+    .catch((err) => {
+      free.added[key] = "error";
+      setFreeStatus(err.message, true);
+    })
+    .finally(renderFreeResults);
 });
 
 // ═══════════════════ Wi-Fi services ═══════════════════
