@@ -214,15 +214,40 @@ type Stats struct {
 	Want    int `json:"want"`
 	Reading int `json:"reading"`
 	Read    int `json:"read"`
+	// For the library summary on the home screen.
+	Bytes       int64          `json:"bytes"`
+	Formats     map[string]int `json:"formats"`
+	AvgProgress float64        `json:"avg_progress"`           // mean % of books being read
+	CurrentBook int            `json:"current_book,omitempty"` // last book read, unfinished
 }
 
 func (d *DB) Stats(ctx context.Context) (Stats, error) {
-	var s Stats
+	s := Stats{Formats: map[string]int{}}
 	err := d.conn.QueryRowContext(ctx, `SELECT COUNT(*),
 		COALESCE(SUM(read_status = 'want'), 0),
 		COALESCE(SUM(read_status = 'reading'), 0),
-		COALESCE(SUM(read_status = 'read'), 0) FROM books`).Scan(&s.Total, &s.Want, &s.Reading, &s.Read)
-	return s, err
+		COALESCE(SUM(read_status = 'read'), 0),
+		COALESCE(SUM(file_size), 0) FROM books`).Scan(&s.Total, &s.Want, &s.Reading, &s.Read, &s.Bytes)
+	if err != nil {
+		return s, err
+	}
+	rows, err := d.conn.QueryContext(ctx, `SELECT format, COUNT(*) FROM books GROUP BY format`)
+	if err != nil {
+		return s, err
+	}
+	for rows.Next() {
+		var f string
+		var n int
+		if rows.Scan(&f, &n) == nil {
+			s.Formats[f] = n
+		}
+	}
+	rows.Close()
+	d.conn.QueryRowContext(ctx, `SELECT COALESCE(AVG(rp.percent), 0) FROM books b
+		JOIN reading_progress rp ON rp.book_id = b.id WHERE b.read_status = 'reading'`).Scan(&s.AvgProgress)
+	d.conn.QueryRowContext(ctx, `SELECT book_id FROM reading_progress WHERE percent < 99.5
+		ORDER BY updated DESC LIMIT 1`).Scan(&s.CurrentBook)
+	return s, nil
 }
 
 func (d *DB) bookAuthors(ctx context.Context, bookID int) ([]string, error) {

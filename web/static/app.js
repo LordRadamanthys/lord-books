@@ -31,9 +31,9 @@ let currentTagFilter = 0;
 const STATUS = { want: "quero ler", reading: "lendo", read: "lido" };
 
 // ═══════════════════ Sidebar Nav ═══════════════════
-document.querySelectorAll(".nav-item").forEach((btn) => {
+document.querySelectorAll(".nav-item[data-status]").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".nav-item").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".nav-item[data-status]").forEach((b) => b.classList.remove("active"));
     sidebarTags.querySelectorAll(".sidebar-tag").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     currentFilter = btn.dataset.status;
@@ -68,13 +68,107 @@ function loadCounts() {
       $("#count-reading").textContent = s.reading;
       $("#count-read").textContent = s.read;
       const label = s.total + (s.total === 1 ? " volume" : " volumes");
-      catalogCount.textContent = label;
       $("#status-info").textContent = label;
+      renderSummary(s);
     });
+}
+
+// ═══════════════════ Home summary (real library data) ═══════════════════
+let libStats = null;
+
+function renderSummary(s) {
+  libStats = s;
+  const size = formatSize(s.bytes || 0) || "0 B";
+  const formats = Object.entries(s.formats || {}).sort((a, b) => b[1] - a[1]);
+  const fmtText = formats.map(([f, n]) => `${f.toUpperCase()} ${n}`).join(" · ");
+
+  $("#brand-sub").textContent = `${s.total} ${s.total === 1 ? "volume" : "volumes"} · ${size}${fmtText ? " · " + fmtText : ""}`;
+  $("#sb-formats").textContent = fmtText;
+  $("#sb-size").textContent = size;
+  $("#sum-chip-size").textContent = `${s.total} volumes · ${size}`;
+  $("#sum-chip-reading").textContent = `${s.reading} em leitura`;
+
+  const readPct = s.total ? Math.round((s.read / s.total) * 100) : 0;
+  $("#ring-read").style.setProperty("--p", readPct);
+  $("#ring-read-value").textContent = readPct + "%";
+  $("#ring-read-meta").textContent = `${s.read} / ${s.total} livros`;
+
+  const avgRaw = Math.min(100, s.avg_progress || 0);
+  const avg = avgRaw > 0 && avgRaw < 10 ? avgRaw.toFixed(1) : String(Math.round(avgRaw));
+  $("#ring-progress").style.setProperty("--p", avgRaw.toFixed(1));
+  $("#ring-progress-value").textContent = avg + "%";
+  $("#ring-progress-sub").textContent = s.reading
+    ? (s.reading === 1 ? "do livro em leitura" : `media dos ${s.reading} livros em leitura`)
+    : "nenhum livro em leitura";
+
+  renderTagBars();
+  renderNowReading(s.current_book);
+}
+
+const BAR_COLORS = ["var(--secondary)", "var(--primary)", "var(--tertiary)", "var(--ochre)", "var(--ink-faint)"];
+
+function renderTagBars() {
+  const el = $("#tag-bars");
+  const top = [...allTags].filter((t) => t.count > 0).sort((a, b) => b.count - a.count).slice(0, 5);
+  if (top.length === 0) {
+    el.innerHTML = `<span class="bars-empty">Crie tags para ver a distribuicao</span>`;
+    $("#bars-foot").textContent = "";
+    return;
+  }
+  const max = top[0].count;
+  el.innerHTML = top
+    .map((t, i) => {
+      const h = 36 + Math.round((t.count / max) * 74);
+      return `<div class="bar" title="${esc(t.name)}: ${t.count}">
+        <span class="bar-value">${t.count}</span>
+        <span class="bar-fill" style="height:${h}px;--bar:${BAR_COLORS[i]}"></span>
+        <span class="bar-label">${esc(t.name)}</span>
+      </div>`;
+    })
+    .join("");
+  const tagged = allTags.reduce((n, t) => n + t.count, 0);
+  $("#bars-foot").textContent = `${allTags.length} tags · ${tagged} marcacoes`;
+}
+
+let nowBookId = 0;
+function renderNowReading(id) {
+  const card = $("#now-card");
+  if (!id) {
+    card.hidden = true;
+    nowBookId = 0;
+    return;
+  }
+  fetch(`/api/books/${id}`)
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((b) => {
+      nowBookId = b.id;
+      $("#now-cover").innerHTML = b.has_cover
+        ? `<img src="${coverUrl(b)}" alt="">`
+        : `<div class="bc-cover-text">${esc(b.title)}</div>`;
+      $("#now-format").textContent = [(b.format || "").toUpperCase(), formatSize(b.file_size)].filter(Boolean).join(" · ");
+      $("#now-title").textContent = b.title;
+      $("#now-author").textContent = (b.authors || []).join(", ") || "Desconhecido";
+      $("#now-progress").textContent = Math.round(b.progress || 0) + "%";
+      $("#now-status").textContent = STATUS[b.read_status] || b.read_status;
+      $("#now-tags").textContent = (b.tags || []).slice(0, 2).join(", ") || "—";
+      card.hidden = false;
+    })
+    .catch(() => { card.hidden = true; });
+}
+
+$("#now-resume").addEventListener("click", () => nowBookId && window.openReader && openReader(nowBookId));
+$("#now-details").addEventListener("click", () => nowBookId && openInspector(nowBookId));
+$("#now-cover").addEventListener("click", () => nowBookId && openInspector(nowBookId));
+
+// The overview cards only show on the plain "Todos" view.
+function updateHomeCards() {
+  $("#home-cards").hidden = !!(currentFilter || currentTagFilter || searchEl.value.trim());
 }
 
 // ═══════════════════ Render ═══════════════════
 function render() {
+  updateHomeCards();
+  catalogCount.textContent = books.length + (books.length === 1 ? " volume" : " volumes");
   const empty = books.length === 0;
   emptyState.hidden = !empty;
   grid.hidden = empty || viewMode !== "grid";
@@ -91,23 +185,35 @@ function renderGrid() {
       const authors = (b.authors || []).join(", ") || "Desconhecido";
       const cover = b.has_cover
         ? `<img src="${coverUrl(b)}" alt="" loading="lazy">`
-        : `<div class="cover-placeholder">${esc(b.title)}</div>`;
+        : `<div class="bc-cover-text">${esc(b.title)}</div>`;
       const sel = selectedBook && selectedBook.id === b.id ? " selected" : "";
       const fmt = (b.format || "epub").toUpperCase();
-      const fmtClass = (b.format || "epub").toLowerCase();
       const statusLabel = STATUS[b.read_status] || b.read_status;
+      const statusChip = b.read_status === "reading" ? "chip--warm" : b.read_status === "read" ? "chip--ok" : "";
+      const pct = b.read_status === "read" ? 100 : Math.min(100, b.progress || 0);
+      const barColor = b.read_status === "read" ? "var(--ok)" : b.read_status === "reading" ? "var(--primary)" : "var(--tertiary)";
+      const right = b.series
+        ? b.series + (b.series_index ? ` #${b.series_index}` : "")
+        : (b.tags || [])[0] || "";
+      const flag = b.id === nowBookId ? `<span class="bc-flag">Atual</span>` : "";
       return `
       <div class="book-card${sel}" data-id="${b.id}">
-        <div class="cover-wrap">${cover}</div>
-        <div class="card-info">
-          <div class="card-badges">
-            <span class="badge badge-format badge-${fmtClass}">${fmt}</span>
-            <span class="badge badge-status" data-status="${b.read_status}">${esc(statusLabel)}</span>
+        ${flag}
+        <div class="bc-top">
+          <div class="bc-cover">${cover}</div>
+          <div class="bc-info">
+            <div class="bc-title">${esc(b.title)}</div>
+            <div class="bc-author">${esc(authors)}</div>
+            <div class="bc-badges">
+              <span class="chip">${fmt}</span>
+              <span class="chip ${statusChip}">${esc(statusLabel)}</span>
+            </div>
           </div>
-          <div class="card-title">${esc(b.title)}</div>
-          <div class="card-author">${esc(authors)}</div>
         </div>
-        <div class="card-bar" data-status="${b.read_status}">${b.progress ? `<span class="card-progress" style="width:${Math.min(100, b.progress).toFixed(1)}%"></span>` : ""}</div>
+        <div class="bc-foot">
+          <div class="bc-foot-row"><span>Progresso ${Math.round(pct)}%</span><span>${esc(right)}</span></div>
+          <div class="bc-bar"><span style="width:${pct.toFixed(1)}%;--bar:${barColor}"></span></div>
+        </div>
       </div>`;
     })
     .join("");
@@ -199,6 +305,9 @@ function openInspector(id) {
     .then((r) => r.json())
     .then((book) => {
       selectedBook = book;
+      const chip = $("#inspector-chip");
+      chip.textContent = STATUS[book.read_status] || book.read_status;
+      chip.hidden = false;
 
       const coverEl = $("#inspector-cover");
       coverEl.innerHTML = book.has_cover
@@ -572,7 +681,8 @@ function loadTags() {
 
 function renderSidebarTags() {
   if (allTags.length === 0) {
-    sidebarTags.innerHTML = `<div style="padding:4px 22px;font-size:.78rem;font-style:italic;color:rgba(244,241,234,.25)">Nenhuma tag</div>`;
+    sidebarTags.innerHTML = `<div style="padding:4px 12px;font-size:.85rem">Nenhuma tag</div>`;
+    renderTagBars();
     return;
   }
   sidebarTags.innerHTML = allTags
@@ -584,11 +694,12 @@ function renderSidebarTags() {
         <button class="tag-delete" data-tag-id="${t.id}" aria-label="Remover tag">&times;</button>
       </div>`)
     .join("");
+  renderTagBars();
 
   sidebarTags.querySelectorAll(".sidebar-tag").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       if (e.target.closest(".tag-delete")) return;
-      document.querySelectorAll(".nav-item").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".nav-item[data-status]").forEach((b) => b.classList.remove("active"));
       sidebarTags.querySelectorAll(".sidebar-tag").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentTagFilter = parseInt(btn.dataset.tagId);
@@ -1871,8 +1982,23 @@ function applyNetwork(st) {
 
   // Sidebar indicator: on while any service runs, green when a reader is connected.
   const ind = $("#net-indicator");
-  ind.hidden = !(wl.running || op.running);
+  const anyOn = wl.running || op.running;
+  ind.hidden = !anyOn;
   ind.dataset.state = wl.device ? "connected" : "on";
+  ind.textContent = wl.device ? "Conectado" : "Ligado";
+  $("#net-off-chip").hidden = anyOn;
+  const sideWl = $("#side-wl");
+  sideWl.textContent = wl.device ? wl.device.name : wl.running ? `porta ${wl.port}` : "desligado";
+  sideWl.classList.toggle("on", !!wl.running);
+  const sideOp = $("#side-opds");
+  sideOp.textContent = op.running ? `porta ${st.opds_port}` : "desligado";
+  sideOp.classList.toggle("on", !!op.running);
+  $("#side-meter-fill").style.width = ((wl.running ? 50 : 0) + (op.running ? 50 : 0)) + "%";
+  const wifiText = wl.device
+    ? `Wi-Fi: ${wl.device.name}`
+    : anyOn ? `Wi-Fi: ${[wl.running && "Calibre", op.running && "OPDS"].filter(Boolean).join(" + ")}` : "Wi-Fi desligado";
+  $("#dp-wifi").textContent = wifiText;
+  $("#sb-wifi").textContent = wifiText;
 
   const connected = !!wl.device;
   if (connected !== net.wifiConnected) {
@@ -1929,7 +2055,7 @@ narrowScreen.addEventListener("change", () => {
 });
 // Picking a collection on a narrow screen closes the overlay so the books show.
 $(".sidebar").addEventListener("click", (e) => {
-  if (narrowScreen.matches && e.target.closest(".nav-item, .sidebar-tag, .sidebar-calibre, .sidebar-import")) setSidebar(false);
+  if (narrowScreen.matches && e.target.closest(".nav-item, .sidebar-tag, .side-card-link")) setSidebar(false);
 });
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === "\\") {
@@ -1966,6 +2092,38 @@ themeToggle.addEventListener("click", () => {
   try { localStorage.setItem("lb-theme", isDark ? "light" : "dark"); } catch {}
   updateThemeIcon();
 });
+
+// ═══════════════════ Accent swatches ═══════════════════
+const swatches = document.querySelectorAll(".swatch[data-accent]");
+function setAccent(name) {
+  if (name && name !== "teal") document.documentElement.setAttribute("data-accent", name);
+  else document.documentElement.removeAttribute("data-accent");
+  swatches.forEach((s) => s.setAttribute("aria-checked", String(s.dataset.accent === (name || "teal"))));
+}
+try { setAccent(localStorage.getItem("lb-accent") || "teal"); } catch { setAccent("teal"); }
+swatches.forEach((s) =>
+  s.addEventListener("click", () => {
+    setAccent(s.dataset.accent);
+    try { localStorage.setItem("lb-accent", s.dataset.accent); } catch {}
+  })
+);
+
+$("#top-send").addEventListener("click", () => $("#send-open").click());
+
+// ═══════════════════ Device pill ═══════════════════
+function refreshDevicePill() {
+  fetch("/api/devices")
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((data) => {
+      const devs = data.devices || [];
+      const d = devs.find((x) => x.kind !== "wireless") || devs[0];
+      $("#dp-device").textContent = d ? d.name : "Nenhum aparelho";
+      $("#dp-space").textContent = d && d.free_bytes ? `${formatSize(d.free_bytes)} livres` : "—";
+    })
+    .catch(() => {});
+}
+refreshDevicePill();
+setInterval(() => { if (!document.hidden) refreshDevicePill(); }, 15000);
 
 // ═══════════════════ Init ═══════════════════
 loadBooks();

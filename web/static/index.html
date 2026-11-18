@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lord Books</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="folio.css">
 <link rel="stylesheet" href="reader.css">
 </head>
 <body>
@@ -25,31 +27,80 @@
   </div>
 
   <div class="app">
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="topbar-row">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">L//</div>
+          <div class="brand-text">
+            <div class="brand-line">
+              <span class="brand-name">Lord Books</span>
+              <span class="chip chip--accent">Biblioteca pessoal</span>
+              <span class="live-dot" title="Servidor ativo"></span>
+            </div>
+            <div class="brand-sub mono" id="brand-sub">Biblioteca local</div>
+          </div>
+        </div>
+        <div class="device-pill mono" id="device-pill">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+          <span id="dp-device">Nenhum aparelho</span>
+          <span class="dp-sep">|</span>
+          <span id="dp-space">—</span>
+          <span class="dp-sep">|</span>
+          <span id="dp-wifi" class="dp-warm">Wi-Fi desligado</span>
+          <span class="dp-sep">|</span>
+          <span class="dp-ok">● Servidor ativo</span>
+        </div>
+      </div>
+      <div class="topbar-row topbar-tools">
+        <button id="sidebar-toggle" class="icon-btn" type="button" aria-label="Recolher menu lateral" aria-controls="sidebar" aria-expanded="true" title="Menu lateral (Ctrl/Cmd + \)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+        </button>
+        <div class="swatches" role="radiogroup" aria-label="Cor de destaque">
+          <button class="swatch" data-accent="teal" role="radio" aria-label="Teal" title="Teal"></button>
+          <button class="swatch" data-accent="copper" role="radio" aria-label="Cobre" title="Cobre"></button>
+          <button class="swatch" data-accent="slate" role="radio" aria-label="Ardosia" title="Ardosia"></button>
+          <button class="swatch" data-accent="ochre" role="radio" aria-label="Ocre" title="Ocre"></button>
+        </div>
+        <div class="search-wrap">
+          <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input id="search" type="search" placeholder="Buscar livros, autores, tags...">
+        </div>
+        <button id="top-send" class="btn btn-outline" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"/></svg>
+          Sincronizar aparelho
+        </button>
+        <label class="btn btn-primary import-btn" tabindex="0">
+          + Importar livro
+          <input id="file-input-top" type="file" accept=".epub,.pdf" multiple hidden>
+        </label>
+      </div>
+    </header>
+
     <div class="app-body">
-      <!-- Left Sidebar (Dark) -->
+      <!-- Left Sidebar -->
       <div id="sidebar-scrim" class="sidebar-scrim" hidden></div>
       <aside class="sidebar" id="sidebar">
-        <div class="sidebar-brand">
-          <span class="brand-name">Lord Books</span>
-          <span class="brand-sub">sua biblioteca</span>
-        </div>
-
         <nav class="sidebar-nav">
           <div class="nav-heading">Colecao</div>
           <button class="nav-item active" data-status="">
-            <span>Todos</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 4h4v16H5zM10 4h4v16h-4zM15.5 5.2l3.8-1 3.7 15.5-3.8 1z"/></svg>
+            <span class="nav-label">Todos os livros</span>
             <span class="nav-count" id="count-all">0</span>
           </button>
+          <button class="nav-item" data-status="reading">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 4h7a3 3 0 013 3v13a2 2 0 00-2-2H2zM22 4h-7a3 3 0 00-3 3v13a2 2 0 012-2h8z"/></svg>
+            <span class="nav-label">Lendo</span>
+            <span class="nav-count nav-count--warm" id="count-reading">0</span>
+          </button>
           <button class="nav-item" data-status="want">
-            <span>Quero Ler</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h12v18l-6-4-6 4z"/></svg>
+            <span class="nav-label">Quero ler</span>
             <span class="nav-count" id="count-want">0</span>
           </button>
-          <button class="nav-item" data-status="reading">
-            <span>Lendo</span>
-            <span class="nav-count" id="count-reading">0</span>
-          </button>
           <button class="nav-item" data-status="read">
-            <span>Lido</span>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 12l5 5L20 6"/></svg>
+            <span class="nav-label">Lidos</span>
             <span class="nav-count" id="count-read">0</span>
           </button>
         </nav>
@@ -61,63 +112,124 @@
           <button id="tag-new-btn" class="tag-new-btn" aria-label="Criar tag">+</button>
         </div>
 
-        <div class="sidebar-footer">
-          <label class="sidebar-import" tabindex="0">
-            + Importar
+        <div class="nav-heading">Ferramentas</div>
+        <div class="sidebar-tools">
+          <label class="nav-item sidebar-import" tabindex="0">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>
+            <span class="nav-label">Importar arquivos</span>
             <input id="file-input" type="file" accept=".epub,.pdf" multiple hidden>
           </label>
-          <button id="calibre-open" class="sidebar-calibre">Importar do Calibre</button>
-          <button id="free-open" class="sidebar-calibre">Livros gratis</button>
-          <button id="send-open" class="sidebar-calibre">Enviar para dispositivo</button>
-          <button id="net-open" class="sidebar-calibre sidebar-wifi">
-            Wi-Fi <span id="net-indicator" class="net-indicator" hidden></span>
+          <button id="calibre-open" class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16v13H4zM8 7V4h8v3M9 12h6"/></svg>
+            <span class="nav-label">Importar do Calibre</span>
+          </button>
+          <button id="free-open" class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>
+            <span class="nav-label">Livros gratis</span>
+          </button>
+          <button id="send-open" class="nav-item">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+            <span class="nav-label">Enviar para dispositivo</span>
           </button>
         </div>
 
-        <div class="sidebar-status">
-          <span class="dot dot-online"></span>
-          Servidor Ativo
+        <section class="side-card" aria-label="Conexoes sem fio">
+          <div class="side-card-head">
+            <span class="mono">Conexoes Wi-Fi</span>
+            <span id="net-indicator" class="chip chip--accent" hidden>Ligado</span>
+            <span id="net-off-chip" class="chip">Desligado</span>
+          </div>
+          <div class="side-card-row mono">
+            <span>Calibre (sem fio)</span><span id="side-wl">desligado</span>
+          </div>
+          <div class="side-card-row mono">
+            <span>Catalogo OPDS</span><span id="side-opds">desligado</span>
+          </div>
+          <div class="side-meter"><span id="side-meter-fill"></span></div>
+          <button id="net-open" class="side-card-link" type="button">Abrir conexoes →</button>
+        </section>
+
+        <div class="sidebar-status mono">
+          <span>Lord Books v0.1</span>
+          <span class="dp-ok">Pronto</span>
         </div>
       </aside>
 
       <!-- Main Content -->
       <main class="main">
-        <div class="toolbar">
-          <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Recolher menu lateral" aria-controls="sidebar" aria-expanded="true" title="Menu lateral (Ctrl/Cmd + \)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
-          </button>
-          <div class="search-wrap">
-            <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-            <input id="search" type="search" placeholder="Buscar livros, autores...">
-          </div>
-          <label class="import-btn" tabindex="0">
-            + Importar
-            <input id="file-input-top" type="file" accept=".epub,.pdf" multiple hidden>
-          </label>
-        </div>
-
-        <!-- Catalog Header -->
-        <div class="catalog-header">
-          <span class="catalog-title">Catalogo</span>
-          <span class="catalog-count" id="catalog-count"></span>
-          <div class="catalog-sep"></div>
-          <label class="sort-wrap">
-            <span class="sort-label">Ordenar</span>
-            <select id="sort-select" class="sort-select">
-              <option value="added">Recentes</option>
-              <option value="title">Titulo</option>
-              <option value="author">Autor</option>
-              <option value="pubdate">Publicacao</option>
-              <option value="series">Serie</option>
-            </select>
-          </label>
-          <div class="view-toggle">
-            <button id="view-grid" class="view-btn active">Capas</button>
-            <button id="view-list" class="view-btn">Lista</button>
-          </div>
-        </div>
-
         <div class="catalog" id="catalog">
+          <section class="home-cards" id="home-cards">
+            <article class="card summary-card">
+              <div class="card-kicker">Resumo da biblioteca</div>
+              <h2 class="card-heading">Sua leitura em numeros</h2>
+              <div class="chip-row">
+                <span class="chip" id="sum-chip-size">—</span>
+                <span class="chip chip--accent" id="sum-chip-reading">—</span>
+              </div>
+              <div class="summary-grid">
+                <div class="ring-tile">
+                  <div class="ring" id="ring-read" style="--p:0"><span class="ring-value" id="ring-read-value">0%</span><span class="ring-caption mono">lidos</span></div>
+                  <div class="ring-meta mono" id="ring-read-meta">0 / 0 livros</div>
+                  <div class="ring-sub">Concluidos na biblioteca</div>
+                </div>
+                <div class="ring-tile">
+                  <div class="ring ring--primary" id="ring-progress" style="--p:0"><span class="ring-value" id="ring-progress-value">0%</span><span class="ring-caption mono">em andamento</span></div>
+                  <div class="ring-meta mono">Progresso medio</div>
+                  <div class="ring-sub" id="ring-progress-sub">dos livros que voce esta lendo</div>
+                </div>
+                <div class="bars-tile">
+                  <div class="bars-title mono">Livros por tag</div>
+                  <div class="bars" id="tag-bars"></div>
+                  <div class="bars-foot mono" id="bars-foot"></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="card now-card" id="now-card" hidden>
+              <div class="now-cover" id="now-cover"></div>
+              <div class="now-main">
+                <div class="now-badges"><span class="chip chip--warm">Lendo agora</span><span class="mono now-format" id="now-format"></span></div>
+                <h2 class="now-title" id="now-title"></h2>
+                <p class="now-author" id="now-author"></p>
+                <div class="now-stats">
+                  <div><span class="mono stat-label">Progresso</span><span class="mono stat-value" id="now-progress"></span></div>
+                  <div><span class="mono stat-label">Status</span><span class="mono stat-value" id="now-status">Lendo</span></div>
+                  <div><span class="mono stat-label">Tags</span><span class="mono stat-value stat-value--accent" id="now-tags"></span></div>
+                </div>
+              </div>
+              <div class="now-actions">
+                <button class="btn btn-primary btn-tall" id="now-resume" type="button">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                  Continuar leitura
+                </button>
+                <button class="btn btn-soft btn-tall" id="now-details" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
+                  Ver detalhes
+                </button>
+              </div>
+            </article>
+          </section>
+
+          <!-- Catalog Header -->
+          <div class="catalog-header">
+            <h2 class="catalog-title">Catalogo da biblioteca</h2>
+            <span class="catalog-count mono" id="catalog-count"></span>
+            <div class="catalog-sep"></div>
+            <label class="sort-wrap">
+              <span class="sort-label">Ordenar</span>
+              <select id="sort-select" class="sort-select">
+                <option value="added">Recentes</option>
+                <option value="title">Titulo</option>
+                <option value="author">Autor</option>
+                <option value="pubdate">Publicacao</option>
+                <option value="series">Serie</option>
+              </select>
+            </label>
+            <div class="view-toggle">
+              <button id="view-grid" class="view-btn active">Capas</button>
+              <button id="view-list" class="view-btn">Lista</button>
+            </div>
+          </div>
           <div id="empty-state" class="empty-state" hidden>
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
               <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
@@ -135,7 +247,8 @@
       <!-- Inspector (Right Panel) -->
       <aside class="inspector" id="inspector" hidden>
         <div class="inspector-header">
-          <span class="inspector-label">Detalhes do Livro</span>
+          <span class="inspector-label">Detalhes do livro</span>
+          <span class="chip chip--accent" id="inspector-chip" hidden></span>
           <button id="inspector-close" class="inspector-close" aria-label="Fechar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
@@ -259,13 +372,18 @@
     </div>
 
     <!-- Status Bar -->
-    <footer class="status-bar">
+    <footer class="status-bar mono">
       <div class="status-bar-left">
         <span class="dot-sm"></span>
-        <span>Lord Books v0.1</span>
+        <span class="sb-strong">Biblioteca local</span>
+        <span id="status-info"></span>
+        <span id="sb-formats"></span>
+        <span id="sb-size"></span>
       </div>
       <div class="status-bar-right">
-        <span id="status-info"></span>
+        <span id="sb-wifi" class="dp-warm">Wi-Fi: desligado</span>
+        <span class="dp-sep">|</span>
+        <span>Pressione <kbd>Ctrl + \</kbd> para o menu</span>
         <button id="theme-toggle" class="theme-toggle" aria-label="Alternar tema"></button>
       </div>
     </footer>
