@@ -17,14 +17,33 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	all := make([]any, 0, len(list)+1)
+	if wifi := s.wifiDeviceEntry(); wifi != nil {
+		all = append(all, wifi)
+	}
+	for _, d := range list {
+		all = append(all, d)
+	}
+	profiles := map[string]devices.Profile{}
+	for k, p := range devices.Profiles {
+		profiles[string(k)] = p
+	}
+	if sess := s.wireless.Session(); sess != nil {
+		d, _ := sess.Snapshot()
+		profiles["wireless"] = wifiProfile(d)
+	}
 	writeJSON(w, map[string]any{
-		"devices":   list,
-		"profiles":  devices.Profiles,
+		"devices":   all,
+		"profiles":  profiles,
 		"converter": devices.FindConverter() != nil,
 	})
 }
 
 func (s *server) deviceFolders(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("device") == wifiDeviceID {
+		http.Error(w, "o aparelho sem fio escolhe a própria pasta", 400)
+		return
+	}
 	dev, err := devices.Find(r.Context(), r.URL.Query().Get("device"))
 	if err != nil {
 		http.Error(w, err.Error(), 404)
@@ -40,6 +59,10 @@ func (s *server) deviceFolders(w http.ResponseWriter, r *http.Request) {
 
 // deviceBooks lists the books on a device and marks the ones that are in the library.
 func (s *server) deviceBooks(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("device") == wifiDeviceID {
+		s.wifiBooks(w, r)
+		return
+	}
 	dev, err := devices.Find(r.Context(), r.URL.Query().Get("device"))
 	if err != nil {
 		http.Error(w, err.Error(), 404)
@@ -112,6 +135,10 @@ func (s *server) sendToDevice(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "device and book_ids required", 400)
 		return
 	}
+	if req.Device == wifiDeviceID {
+		s.sendToWifi(w, r, req.BookIDs, req.Force)
+		return
+	}
 	dev, err := devices.Find(r.Context(), req.Device)
 	if err != nil {
 		http.Error(w, err.Error(), 404)
@@ -181,6 +208,13 @@ func (s *server) ejectDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad json", 400)
+		return
+	}
+	if req.Device == wifiDeviceID {
+		if sess := s.wireless.Session(); sess != nil {
+			sess.Disconnect()
+		}
+		w.WriteHeader(204)
 		return
 	}
 	dev, err := devices.Find(r.Context(), req.Device)

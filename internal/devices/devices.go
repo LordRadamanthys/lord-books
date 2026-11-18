@@ -301,6 +301,9 @@ func copyDurable(src, dst string) error {
 	return os.Rename(tmp, dst)
 }
 
+// FileName is the name a book gets on a device: "Title - Author.ext".
+func FileName(title, author, format string) string { return deviceFileName(title, author, format) }
+
 // deviceFileName builds "Title - Author.ext" safe for FAT32/exFAT, which most readers use.
 func deviceFileName(title, author, format string) string {
 	base := strings.TrimSpace(title)

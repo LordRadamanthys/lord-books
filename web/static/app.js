@@ -254,7 +254,8 @@ function closeInspector() {
 $("#inspector-close").addEventListener("click", closeInspector);
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (!sendModal.hidden) closeSendModal();
+  if (!netModal.hidden) netModal.hidden = true;
+  else if (!sendModal.hidden) closeSendModal();
   else if (!calibreModal.hidden) calibreModal.hidden = true;
   else if (!metaModal.hidden) closeMetaModal();
   else if (!editForm.hidden) setEditMode(false);
@@ -1101,6 +1102,7 @@ function loadDevices() {
       sendState.profiles = data.profiles || {};
       sendState.converter = !!data.converter;
       sendKind.innerHTML = Object.values(sendState.profiles)
+        .filter((p) => p.kind !== "wireless")
         .map((p) => `<option value="${esc(p.kind)}">${esc(p.label)}</option>`)
         .join("");
       if (!sendState.devices.some((d) => d.id === sendState.deviceId)) {
@@ -1126,7 +1128,9 @@ function renderDevices() {
     .map((d) => {
       const kind = deviceKind(d);
       const label = (sendState.profiles[kind] || d).label;
-      const free = d.total_bytes ? `${formatSize(d.free_bytes)} livres de ${formatSize(d.total_bytes)}` : "";
+      const free = d.total_bytes
+        ? `${formatSize(d.free_bytes)} livres de ${formatSize(d.total_bytes)}`
+        : d.free_bytes ? `${formatSize(d.free_bytes)} livres` : "";
       return `<li class="send-device${d.id === sendState.deviceId ? " selected" : ""}" data-device="${esc(d.id)}">
         <div class="send-device-name">${esc(d.name)}</div>
         <div class="send-device-info">
@@ -1159,6 +1163,7 @@ function savePref(d, what, val) {
 }
 
 function deviceKind(d) {
+  if (d.wireless) return d.kind;
   const saved = loadPref(d, "kind");
   return saved && sendState.profiles[saved] ? saved : d.kind;
 }
@@ -1175,10 +1180,16 @@ function selectDevice(id) {
   const d = currentDevice();
   sendConfig.hidden = !d;
   if (d) {
-    const kind = deviceKind(d);
-    sendKind.value = kind;
-    const savedFolder = loadPref(d, "folder");
-    sendFolder.value = savedFolder !== null ? savedFolder : sendState.profiles[kind].folder;
+    // A Wi-Fi reader decides where books go and announces its own formats.
+    sendKind.closest(".edit-field").hidden = !!d.wireless;
+    sendFolder.closest(".edit-field").hidden = !!d.wireless;
+    $("#send-eject").textContent = d.wireless ? "Desconectar" : "Ejetar com seguranca";
+    if (!d.wireless) {
+      const kind = deviceKind(d);
+      sendKind.value = kind;
+      const savedFolder = loadPref(d, "folder");
+      sendFolder.value = savedFolder !== null ? savedFolder : sendState.profiles[kind].folder;
+    }
     renderProfileInfo();
   }
   renderSendBooks();
@@ -1347,7 +1358,9 @@ folderList.addEventListener("click", (e) => {
 });
 
 function currentProfile() {
-  return currentDevice() ? sendState.profiles[sendKind.value] : null;
+  const d = currentDevice();
+  if (!d) return null;
+  return d.wireless ? sendState.profiles[d.kind] : sendState.profiles[sendKind.value];
 }
 
 function convertible(p) {
@@ -1486,7 +1499,7 @@ sendGo.addEventListener("click", () => {
 $("#send-eject").addEventListener("click", () => {
   const d = currentDevice();
   if (!d) return;
-  setSendStatus(`Ejetando ${d.name}...`);
+  setSendStatus(d.wireless ? `Desconectando ${d.name}...` : `Ejetando ${d.name}...`);
   fetch("/api/devices/eject", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1494,11 +1507,134 @@ $("#send-eject").addEventListener("click", () => {
   })
     .then((r) => (r.ok ? null : r.text().then((t) => Promise.reject(new Error(t.trim())))))
     .then(() => {
-      setSendStatus(`${d.name} pode ser desconectado.`);
+      setSendStatus(d.wireless ? `${d.name} foi desconectado.` : `${d.name} pode ser desconectado.`);
       loadDevices();
     })
     .catch((err) => setSendStatus("Nao foi possivel ejetar: " + err.message, true));
 });
+
+// ═══════════════════ Wi-Fi services ═══════════════════
+const netModal = $("#net-modal");
+const wlToggle = $("#wl-toggle");
+const opdsToggle = $("#opds-toggle");
+const opdsPort = $("#opds-port");
+const opdsPassword = $("#opds-password");
+const netError = $("#net-error");
+const net = { status: null, timer: null, wifiConnected: false };
+
+$("#net-open").addEventListener("click", () => {
+  netModal.hidden = false;
+  netError.hidden = true;
+  opdsPassword.value = "";
+  refreshNetwork(true);
+});
+for (const id of ["#net-close", "#net-done"]) $(id).addEventListener("click", () => (netModal.hidden = true));
+netModal.addEventListener("click", (e) => {
+  if (e.target === netModal) netModal.hidden = true;
+});
+
+function netRequest(path, body) {
+  netError.hidden = true;
+  return fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+    .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))))
+    .then(applyNetwork)
+    .catch((err) => {
+      netError.textContent = err.message;
+      netError.hidden = false;
+    });
+}
+
+wlToggle.addEventListener("click", () => {
+  wlToggle.disabled = true;
+  netRequest("/api/network/wireless", { on: !(net.status && net.status.wireless.running) }).finally(() => (wlToggle.disabled = false));
+});
+
+opdsToggle.addEventListener("click", () => {
+  const on = !(net.status && net.status.opds.running);
+  const body = { on };
+  if (on) {
+    const port = parseInt(opdsPort.value);
+    if (port) body.port = port;
+    // An empty field keeps the saved password; typing replaces it.
+    if (opdsPassword.value !== "") body.password = opdsPassword.value;
+  }
+  opdsToggle.disabled = true;
+  netRequest("/api/network/opds", body).finally(() => {
+    opdsToggle.disabled = false;
+    opdsPassword.value = "";
+  });
+});
+
+function refreshNetwork(fillForm) {
+  return fetch("/api/network")
+    .then((r) => r.json())
+    .then((st) => {
+      applyNetwork(st);
+      if (fillForm) opdsPort.value = st.opds_port;
+    })
+    .catch(() => {});
+}
+
+function applyNetwork(st) {
+  net.status = st;
+  const wl = st.wireless;
+  const op = st.opds;
+  const addr = (st.addresses || [])[0];
+
+  wlToggle.textContent = wl.running ? "Desligar" : "Ligar";
+  wlToggle.setAttribute("aria-pressed", String(wl.running));
+  $("#wl-steps").hidden = !wl.running || !!wl.device;
+  $("#wl-address").textContent = addr ? `${addr}:${wl.port}` : `porta ${wl.port}`;
+  const wlLines = [];
+  if (!wl.running) {
+    wlLines.push(`<span>Desligado</span>`);
+  } else if (wl.device) {
+    wlLines.push(`<span class="connected">● Conectado: ${esc(wl.device.name)} (${esc(wl.device.address)})</span>`);
+    wlLines.push(`<span>Envie livros em <strong>Enviar para dispositivo</strong>, escolhendo "${esc(wl.device.name)}".</span>`);
+  } else {
+    wlLines.push(`<span class="on">● Aguardando o aparelho na porta ${wl.port}</span>`);
+    if (!wl.discovery || wl.discovery.length === 0) wlLines.push(`<span>A busca automatica nao esta disponivel; digite o endereco no aparelho.</span>`);
+  }
+  if (wl.last_error) wlLines.push(`<span class="edit-error">${esc(wl.last_error)}</span>`);
+  $("#wl-status").innerHTML = wlLines.join("");
+
+  opdsToggle.textContent = op.running ? "Desligar" : "Ligar";
+  opdsToggle.setAttribute("aria-pressed", String(op.running));
+  opdsPort.disabled = op.running;
+  opdsPassword.disabled = op.running;
+  opdsPassword.placeholder = st.opds_password ? "senha salva (digite para trocar)" : "sem senha";
+  const opLines = [];
+  if (!op.running) {
+    opLines.push(`<span>Desligado</span>`);
+  } else {
+    opLines.push(`<span class="on">● Ligado${op.protected ? " com senha" : " sem senha"}. No aparelho, adicione o catalogo:</span>`);
+    for (const u of op.urls || []) opLines.push(`<code>${esc(u)}</code>`);
+    if (!op.urls || op.urls.length === 0) opLines.push(`<span>Nenhuma rede encontrada neste computador.</span>`);
+    else opLines.push(`<span>Digite com <strong>http://</strong> (sem "s").${op.protected ? " Usuario: preencha com qualquer nome (o Xteink so envia a senha se houver usuario). Senha: a que voce definiu." : ""}</span>`);
+  }
+  $("#opds-status").innerHTML = opLines.join("");
+
+  // Sidebar indicator: on while any service runs, green when a reader is connected.
+  const ind = $("#net-indicator");
+  ind.hidden = !(wl.running || op.running);
+  ind.dataset.state = wl.device ? "connected" : "on";
+
+  const connected = !!wl.device;
+  if (connected !== net.wifiConnected) {
+    net.wifiConnected = connected;
+    if (!sendModal.hidden) loadDevices();
+  }
+  scheduleNetworkPoll(wl.running || op.running);
+}
+
+function scheduleNetworkPoll(active) {
+  clearTimeout(net.timer);
+  if (active) net.timer = setTimeout(() => refreshNetwork(false), netModal.hidden ? 5000 : 2000);
+}
 
 // ═══════════════════ Theme Toggle ═══════════════════
 const themeToggle = $("#theme-toggle");
@@ -1531,3 +1667,4 @@ themeToggle.addEventListener("click", () => {
 loadBooks();
 loadCounts();
 loadTags();
+refreshNetwork(false);

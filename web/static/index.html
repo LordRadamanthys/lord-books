@@ -66,6 +66,9 @@
           </label>
           <button id="calibre-open" class="sidebar-calibre">Importar do Calibre</button>
           <button id="send-open" class="sidebar-calibre">Enviar para dispositivo</button>
+          <button id="net-open" class="sidebar-calibre sidebar-wifi">
+            Wi-Fi <span id="net-indicator" class="net-indicator" hidden></span>
+          </button>
         </div>
 
         <div class="sidebar-status">
@@ -317,6 +320,63 @@
         <span id="calibre-status" class="meta-status"></span>
         <button id="calibre-cancel" class="action-btn">Fechar</button>
         <button id="calibre-start" class="meta-apply-btn">Importar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wi-Fi services modal -->
+  <div id="net-modal" class="modal-backdrop" hidden>
+    <div class="modal modal--small net-modal" role="dialog" aria-modal="true" aria-labelledby="net-title">
+      <div class="modal-header">
+        <span id="net-title" class="modal-title">Conexoes Wi-Fi</span>
+        <button id="net-close" class="inspector-close" aria-label="Fechar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="calibre-body net-body">
+        <p class="calibre-hint calibre-hint--small net-intro">Ligue so quando for usar. Enquanto estiver ligado, aparelhos na mesma rede Wi-Fi conseguem se conectar ao Lord Books.</p>
+
+        <section class="net-card">
+          <div class="net-card-head">
+            <div>
+              <h3 class="net-card-title">Conexao sem fio (Calibre)</h3>
+              <p class="net-card-sub">Para Xteink (Calibre Transfer), KOReader e outros que se conectam ao Calibre. Voce envia os livros daqui.</p>
+            </div>
+            <button id="wl-toggle" class="net-toggle" type="button" aria-pressed="false">Ligar</button>
+          </div>
+          <div id="wl-status" class="net-status"></div>
+          <ol id="wl-steps" class="net-steps" hidden>
+            <li>Conecte o aparelho na mesma rede Wi-Fi deste computador.</li>
+            <li>No Xteink, abra <strong>Calibre Transfer</strong> (no KOReader: <em>Calibre &rsaquo; Conectar</em>).</li>
+            <li>Se o aparelho pedir o endereco, use <code id="wl-address"></code>.</li>
+          </ol>
+        </section>
+
+        <section class="net-card">
+          <div class="net-card-head">
+            <div>
+              <h3 class="net-card-title">Catalogo OPDS</h3>
+              <p class="net-card-sub">Para Boox, KOReader, Moon+ Reader e outros leitores com OPDS. Voce escolhe e baixa os livros no proprio aparelho.</p>
+            </div>
+            <button id="opds-toggle" class="net-toggle" type="button" aria-pressed="false">Ligar</button>
+          </div>
+          <div id="opds-status" class="net-status"></div>
+          <div class="net-opds-config">
+            <label class="edit-field net-port">
+              <span>Porta</span>
+              <input id="opds-port" type="number" min="1024" max="65535">
+            </label>
+            <label class="edit-field net-password">
+              <span>Senha <em>opcional, vale para o catalogo</em></span>
+              <input id="opds-password" type="password" autocomplete="new-password" placeholder="sem senha">
+            </label>
+          </div>
+        </section>
+        <p id="net-error" class="edit-error" hidden></p>
+      </div>
+      <div class="modal-footer">
+        <span class="meta-status net-firewall">Se o aparelho nao encontrar o computador, permita o Lord Books no firewall do sistema.</span>
+        <button id="net-done" class="action-btn">Fechar</button>
       </div>
     </div>
   </div>

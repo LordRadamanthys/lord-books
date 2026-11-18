@@ -17,10 +17,16 @@ import (
 	"github.com/LordRadamanthys/lord-books/internal/dialog"
 	"github.com/LordRadamanthys/lord-books/internal/library"
 	"github.com/LordRadamanthys/lord-books/internal/metadata"
+	"github.com/LordRadamanthys/lord-books/internal/opds"
+	"github.com/LordRadamanthys/lord-books/internal/settings"
+	"github.com/LordRadamanthys/lord-books/internal/wireless"
 )
 
-func New(web fs.FS, store *db.DB, lib *library.Library, meta *metadata.Client) http.Handler {
-	s := &server{db: store, lib: lib, meta: meta}
+// New returns the app's HTTP handler and a function that stops the Wi-Fi services
+// (wireless device connection and OPDS catalog) if they were started.
+func New(web fs.FS, store *db.DB, lib *library.Library, meta *metadata.Client, cfg *settings.Store) (http.Handler, func()) {
+	s := &server{db: store, lib: lib, meta: meta, cfg: cfg, opds: opds.New(store)}
+	s.wireless = wireless.New(cfg.Get().LibraryUUID, func() int { return s.cfg.Get().OPDSPort })
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /api/books/upload", s.uploadBooks)
@@ -51,15 +57,25 @@ func New(web fs.FS, store *db.DB, lib *library.Library, meta *metadata.Client) h
 	mux.HandleFunc("GET /api/devices/books", s.deviceBooks)
 	mux.HandleFunc("POST /api/devices/send", s.sendToDevice)
 	mux.HandleFunc("POST /api/devices/eject", s.ejectDevice)
+	mux.HandleFunc("GET /api/network", s.networkStatus)
+	mux.HandleFunc("POST /api/network/wireless", s.toggleWireless)
+	mux.HandleFunc("POST /api/network/opds", s.toggleOPDS)
 
 	mux.Handle("/", http.FileServerFS(web))
-	return guard(mux)
+	stop := func() {
+		s.wireless.Stop()
+		s.opds.Stop()
+	}
+	return guard(mux), stop
 }
 
 type server struct {
-	db   *db.DB
-	lib  *library.Library
-	meta *metadata.Client
+	db       *db.DB
+	lib      *library.Library
+	meta     *metadata.Client
+	cfg      *settings.Store
+	wireless *wireless.Server
+	opds     *opds.Server
 }
 
 func (s *server) listBooks(w http.ResponseWriter, r *http.Request) {

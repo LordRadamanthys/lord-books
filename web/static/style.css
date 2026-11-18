@@ -1712,6 +1712,89 @@ body {
 .send-result[data-status="exists"] { color: var(--ink-faint); }
 .send-result[data-status="unsupported"], .send-result[data-status="error"] { color: var(--danger); }
 
+/* ═══════════════════ Wi-Fi services ═══════════════════ */
+.sidebar-wifi { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.net-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 6px rgba(74,124,125,.8);
+}
+.net-indicator[data-state="connected"] { background: #6BBF8A; box-shadow: 0 0 6px rgba(107,191,138,.8); }
+.net-modal { max-width: 620px; }
+.net-body { display: flex; flex-direction: column; gap: 14px; }
+.net-intro { margin: 0; }
+.net-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  padding: 14px 16px;
+}
+.net-card-head { display: flex; align-items: flex-start; gap: 14px; }
+.net-card-head > div { flex: 1; }
+.net-card-title {
+  font-family: var(--font-mono);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.net-card-sub { font-size: .88rem; font-weight: 500; color: var(--ink-soft); margin-top: 4px; line-height: 1.4; }
+.net-toggle {
+  flex-shrink: 0;
+  min-width: 88px;
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+.net-toggle[aria-pressed="true"] { background: transparent; color: var(--danger); border-color: var(--danger); }
+.net-toggle:disabled { opacity: .5; cursor: default; }
+.net-status {
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: .68rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.net-status .on { color: var(--primary); }
+.net-status .connected { color: #3E8E5C; }
+.net-status code, .net-steps code {
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  user-select: all;
+}
+.net-steps {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  font-size: .86rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+.net-opds-config { display: flex; gap: 10px; margin-top: 12px; }
+.net-port { width: 96px; }
+.net-password { flex: 1; }
+.net-firewall { font-size: .6rem; }
+[data-theme="dark"] .net-status .connected { color: #6BBF8A; }
+
 /* ═══════════════════ Dark Theme ═══════════════════ */
 [data-theme="dark"] {
   --bg: #1A1918;
