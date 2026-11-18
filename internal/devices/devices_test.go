@@ -128,6 +128,37 @@ func TestSendSkipsDuplicates(t *testing.T) {
 	}
 }
 
+func TestDeleteBookOnlyTouchesBooksOnDevice(t *testing.T) {
+	dev := Device{Mount: t.TempDir()}
+	mkdirs(t, dev.Mount, "Lord Books")
+	book := filepath.Join(dev.Mount, "Lord Books", "Livro.epub")
+	os.WriteFile(book, []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(dev.Mount, "Lord Books", "._Livro.epub"), []byte("meta"), 0o644)
+	os.WriteFile(filepath.Join(dev.Mount, "config.ini"), []byte("keep"), 0o644)
+	outside := filepath.Join(t.TempDir(), "outside.epub")
+	os.WriteFile(outside, []byte("keep"), 0o644)
+
+	for _, bad := range []string{"config.ini", "", "Lord Books", "../" + filepath.Base(filepath.Dir(outside)) + "/outside.epub", "nao-existe.epub"} {
+		if err := DeleteBook(dev, bad); err == nil {
+			t.Errorf("deleting %q should fail", bad)
+		}
+	}
+	if err := DeleteBook(dev, "Lord Books/Livro.epub"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(book); !os.IsNotExist(err) {
+		t.Error("book still there")
+	}
+	if _, err := os.Stat(filepath.Join(dev.Mount, "Lord Books", "._Livro.epub")); !os.IsNotExist(err) {
+		t.Error("macOS twin file left behind")
+	}
+	for _, keep := range []string{filepath.Join(dev.Mount, "config.ini"), outside} {
+		if _, err := os.Stat(keep); err != nil {
+			t.Errorf("%s must not be touched", keep)
+		}
+	}
+}
+
 func TestTitleAuthorsFromName(t *testing.T) {
 	title, authors := titleAuthorsFromName("O crime do bom nazista - Prêmio Jabuti 2024 - Samir Machado de Machado.epub")
 	if title != "O crime do bom nazista - Prêmio Jabuti 2024" || len(authors) != 1 || authors[0] != "Samir Machado de Machado" {

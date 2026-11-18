@@ -2,6 +2,7 @@ package wireless
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -82,6 +83,20 @@ func (f *fakeReader) run(done chan<- struct{}) {
 			f.received[lpath] = data
 		case opSendBooklists, opSendBookMetadata:
 			// no reply, as in calibre's protocol
+		case opDeleteBook:
+			f.reply(opOK, map[string]any{})
+			for _, p := range argStrings(m.Args, "lpaths") {
+				delete(f.received, p)
+				f.reply(opOK, map[string]any{"uuid": "u-" + p})
+			}
+		case opGetBookFileSegment:
+			data, ok := f.received[argString(m.Args, "lpath")]
+			if !ok {
+				f.reply(opNoop, map[string]any{})
+				continue
+			}
+			f.reply(opOK, map[string]any{"fileLength": len(data)})
+			f.conn.Write(data)
 		}
 	}
 }
@@ -127,6 +142,24 @@ func TestSessionHandshakeAndSend(t *testing.T) {
 	}
 	if _, books = sess.Snapshot(); len(books) != 2 {
 		t.Errorf("sent book not recorded: %+v", books)
+	}
+
+	var back bytes.Buffer
+	if err := sess.FetchBook("Novo - Bia.epub", &back); err != nil || back.String() != string(content) {
+		t.Errorf("fetch: err=%v got %q", err, back.String())
+	}
+	if err := sess.FetchBook("nao-existe.epub", io.Discard); err == nil {
+		t.Error("fetching a missing book should fail")
+	}
+	// A refused fetch must leave the connection usable.
+	if err := sess.DeleteBooks([]string{"Novo - Bia.epub"}); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, ok := f.received["Novo - Bia.epub"]; ok {
+		t.Error("device still has the deleted book")
+	}
+	if _, books = sess.Snapshot(); len(books) != 1 {
+		t.Errorf("deleted book still listed: %+v", books)
 	}
 
 	cancel() // stopping the server ejects the device

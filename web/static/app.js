@@ -1212,7 +1212,7 @@ sendFolder.addEventListener("change", () => {
 });
 
 // ─── Tabs: books to send / books already on the device ───
-const deviceBooks = { list: [], loadedFor: "", seq: 0 };
+const deviceBooks = { list: [], loadedFor: "", seq: 0, checked: new Set(), results: {} };
 const deviceBookList = $("#device-book-list");
 const deviceFilter = $("#device-filter");
 
@@ -1234,7 +1234,9 @@ function loadDeviceBooks() {
   const d = currentDevice();
   const seq = ++deviceBooks.seq;
   deviceBooks.list = [];
+  if (deviceBooks.loadedFor !== (d ? d.id : "")) deviceBooks.checked.clear();
   deviceBooks.loadedFor = d ? d.id : "";
+  updateDeviceActions();
   $("#device-book-count").textContent = "";
   if (!d) {
     $("#device-books-summary").textContent = "";
@@ -1276,7 +1278,8 @@ function renderDeviceBooks() {
   deviceBookList.innerHTML = rows
     .map((b) => {
       const fmt = (b.format || "").toLowerCase();
-      return `<li class="send-book device-book">
+      return `<li class="send-book device-book" data-path="${esc(b.path)}">
+        <input type="checkbox" ${deviceBooks.checked.has(b.path) ? "checked" : ""} aria-label="Selecionar ${esc(b.title)}">
         <div class="send-book-text">
           <div class="send-book-title">${esc(b.title)}</div>
           <div class="send-book-author">${esc((b.authors || []).join(", ")) || "&nbsp;"}</div>
@@ -1287,7 +1290,109 @@ function renderDeviceBooks() {
       </li>`;
     })
     .join("");
+  updateDeviceActions();
 }
+
+deviceBookList.addEventListener("click", (e) => {
+  const li = e.target.closest(".device-book");
+  if (!li) return;
+  const cb = li.querySelector("input");
+  if (e.target !== cb) cb.checked = !cb.checked;
+  if (cb.checked) deviceBooks.checked.add(li.dataset.path);
+  else deviceBooks.checked.delete(li.dataset.path);
+  updateDeviceActions();
+});
+
+$("#device-select-only").addEventListener("click", () => {
+  deviceBooks.checked = new Set(deviceBooks.list.filter((b) => !b.match).map((b) => b.path));
+  renderDeviceBooks();
+});
+$("#device-select-none").addEventListener("click", () => {
+  deviceBooks.checked.clear();
+  renderDeviceBooks();
+});
+
+function selectedDeviceBooks() {
+  return deviceBooks.list.filter((b) => deviceBooks.checked.has(b.path));
+}
+
+// Books already in the library (even as a copy rewritten by another program) are not
+// imported again; only EPUB and PDF can be.
+function importable(b) {
+  return !b.match && ["epub", "pdf"].includes((b.format || "").toLowerCase());
+}
+
+function updateDeviceActions() {
+  const sel = selectedDeviceBooks();
+  $("#device-delete").disabled = sel.length === 0;
+  $("#device-delete").textContent = sel.length ? `Apagar ${sel.length} do dispositivo` : "Apagar do dispositivo";
+  const imp = sel.filter(importable).length;
+  $("#device-import").disabled = imp === 0;
+  $("#device-import").textContent = imp ? `Trazer ${imp} para a biblioteca` : "Trazer para a biblioteca";
+}
+
+function deviceAction(path, paths) {
+  const d = currentDevice();
+  return fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ device: d.id, paths }),
+  }).then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t.trim())))));
+}
+
+$("#device-delete").addEventListener("click", () => {
+  const d = currentDevice();
+  const sel = selectedDeviceBooks();
+  if (!d || sel.length === 0) return;
+  const names = sel.slice(0, 10).map((b) => `• ${b.title}`).join("\n") + (sel.length > 10 ? `\n... e mais ${sel.length - 10}` : "");
+  const msg = `Apagar ${sel.length} livro${sel.length > 1 ? "s" : ""} de ${d.name}?\n\n${names}\n\nOs arquivos serao apagados do dispositivo e isso nao pode ser desfeito. A biblioteca nao e alterada.`;
+  if (!confirm(msg)) return;
+  setSendStatus(`Apagando de ${d.name}...`);
+  deviceAction("/api/devices/delete", sel.map((b) => b.path))
+    .then((data) => {
+      const errors = (data.results || []).filter((r) => r.status === "error");
+      const ok = (data.results || []).length - errors.length;
+      setSendStatus(
+        `${ok} apagado${ok === 1 ? "" : "s"}` + (errors.length ? ` · ${errors.length} com erro: ${errors[0].error}` : ""),
+        errors.length > 0
+      );
+      deviceBooks.checked.clear();
+      loadDeviceBooks();
+      loadDevices();
+    })
+    .catch((err) => setSendStatus(err.message, true));
+});
+
+$("#device-import").addEventListener("click", () => {
+  const d = currentDevice();
+  const sel = selectedDeviceBooks();
+  const paths = sel.filter(importable).map((b) => b.path);
+  if (!d || paths.length === 0) return;
+  const ignored = sel.length - paths.length;
+  setSendStatus(`Copiando ${paths.length} livro${paths.length > 1 ? "s" : ""} de ${d.name}...`);
+  deviceAction("/api/devices/import", paths)
+    .then((data) => {
+      const res = data.results || [];
+      const imported = res.filter((r) => r.status === "imported").length;
+      const skipped = res.filter((r) => r.status === "skipped").length + ignored;
+      const errors = res.filter((r) => r.status === "error");
+      const parts = [`${imported} importado${imported === 1 ? "" : "s"} para a biblioteca`];
+      if (skipped) parts.push(`${skipped} ja estava${skipped > 1 ? "m" : ""} na biblioteca`);
+      if (errors.length) parts.push(`${errors.length} com erro: ${errors[0].error}`);
+      setSendStatus(parts.join(" · "), errors.length > 0);
+      deviceBooks.checked.clear();
+      loadDeviceBooks();
+      loadBooks();
+      loadCounts();
+      loadTags();
+      // Newly imported books should be offered in the send tab too.
+      fetch("/api/books?sort=title").then((r) => r.json()).then((x) => {
+        sendState.books = x.books || [];
+        renderSendBooks();
+      });
+    })
+    .catch((err) => setSendStatus(err.message, true));
+});
 
 // ─── Folder browser inside the selected device ───
 const folderBrowser = $("#send-folder-browser");

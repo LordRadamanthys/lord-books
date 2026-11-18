@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"slices"
@@ -14,6 +15,8 @@ import (
 
 // The reader connected over Wi-Fi shows up in the device list under this id.
 const wifiDeviceID = "wifi"
+
+var errNoWifiDevice = errors.New("o aparelho sem fio foi desconectado")
 
 // wifiProfile derives what can be sent from the formats the reader announced.
 func wifiProfile(d wireless.Device) devices.Profile {

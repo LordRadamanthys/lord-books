@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -112,6 +113,45 @@ func Scan(ctx context.Context, d Device) ([]DeviceBook, error) {
 		return nil
 	})
 	return books, err
+}
+
+// BookFile resolves a device-relative path to the absolute path of an e-book file on
+// that device, refusing anything outside it or that isn't a regular e-book file.
+func BookFile(d Device, rel string) (string, error) {
+	if strings.TrimSpace(rel) == "" {
+		return "", errors.New("caminho vazio")
+	}
+	abs, err := Destination(d, rel)
+	if err != nil {
+		return "", err
+	}
+	if _, ok := bookExts[strings.ToLower(filepath.Ext(abs))]; !ok {
+		return "", errors.New("não é um arquivo de livro")
+	}
+	st, err := os.Lstat(abs)
+	if err != nil {
+		return "", errors.New("arquivo não encontrado no dispositivo")
+	}
+	if !st.Mode().IsRegular() {
+		return "", errors.New("não é um arquivo comum")
+	}
+	return abs, nil
+}
+
+// DeleteBook removes an e-book file from the device, with the "._" metadata twin macOS
+// leaves next to it on FAT cards.
+func DeleteBook(d Device, rel string) error {
+	abs, err := BookFile(d, rel)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(abs); err != nil {
+		return err
+	}
+	os.Remove(filepath.Join(filepath.Dir(abs), "._"+filepath.Base(abs)))
+	metaCache.Delete(abs)
+	hashCache.Delete(abs)
+	return nil
 }
 
 // Hash returns the sha256 of the file's contents, computing it at most once per version.

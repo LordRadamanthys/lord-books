@@ -26,6 +26,7 @@ const (
 	opGetInitializationInfo = 9
 	opNoop                  = 12
 	opDeleteBook            = 13
+	opGetBookFileSegment    = 14
 	opSendBookMetadata      = 16
 	opDisplayMessage        = 17
 	opCalibreBusy           = 18

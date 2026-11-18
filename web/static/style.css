@@ -1646,7 +1646,18 @@ body {
   color: var(--ink-faint);
   border-bottom: 1px solid var(--border-soft);
 }
-.send-book.device-book { grid-template-columns: 1fr auto auto; cursor: default; }
+.send-book.device-book { grid-template-columns: 18px 1fr auto auto; cursor: pointer; }
+.device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.device-actions-spacer { flex: 1; }
+.device-actions .action-btn:disabled { opacity: .4; cursor: default; }
+.device-actions .action-btn--danger:disabled:hover { background: transparent; color: var(--danger); }
 .device-book-path {
   font-family: var(--font-mono);
   font-size: .6rem;

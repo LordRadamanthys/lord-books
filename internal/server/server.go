@@ -57,6 +57,8 @@ func New(web fs.FS, store *db.DB, lib *library.Library, meta *metadata.Client, c
 	mux.HandleFunc("GET /api/devices/books", s.deviceBooks)
 	mux.HandleFunc("POST /api/devices/send", s.sendToDevice)
 	mux.HandleFunc("POST /api/devices/eject", s.ejectDevice)
+	mux.HandleFunc("POST /api/devices/delete", s.deleteFromDevice)
+	mux.HandleFunc("POST /api/devices/import", s.importFromDevice)
 	mux.HandleFunc("GET /api/network", s.networkStatus)
 	mux.HandleFunc("POST /api/network/wireless", s.toggleWireless)
 	mux.HandleFunc("POST /api/network/opds", s.toggleOPDS)
@@ -145,7 +147,7 @@ func (s *server) deleteBook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid id", 400)
 		return
 	}
-	if err := s.db.DeleteBook(r.Context(), id); err != nil {
+	if err := s.lib.Delete(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}

@@ -320,6 +320,70 @@ func (s *session) Refresh() error {
 	return nil
 }
 
+// DeleteBooks asks the reader to delete books, as calibre's delete_books does: the
+// reader acknowledges the request, then answers once per book.
+func (s *session) DeleteBooks(lpaths []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errNotConnected
+	}
+	if _, err := s.callOK(opDeleteBook, map[string]any{"lpaths": lpaths}, "apagar livros"); err != nil {
+		s.closeLocked()
+		return err
+	}
+	for range lpaths {
+		if _, err := s.receive(); err != nil {
+			s.closeLocked()
+			return fmt.Errorf("apagar livros: %w", err)
+		}
+	}
+	gone := map[string]bool{}
+	for _, p := range lpaths {
+		gone[p] = true
+	}
+	kept := s.books[:0]
+	for _, b := range s.books {
+		if !gone[b.Path] {
+			kept = append(kept, b)
+		}
+	}
+	s.books = kept
+	s.refreshFreeSpace()
+	return nil
+}
+
+// FetchBook copies a book from the reader into w (calibre's get_file).
+func (s *session) FetchBook(lpath string, w io.Writer) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errNotConnected
+	}
+	m, err := s.call(opGetBookFileSegment, map[string]any{
+		"lpath": lpath, "position": 0, "thisBook": 0, "totalBooks": 1,
+		"canStream": true, "canStreamBinary": true,
+	})
+	if err != nil {
+		s.closeLocked()
+		return err
+	}
+	if m.Op != opOK {
+		return &peerError{"o aparelho não enviou o arquivo"}
+	}
+	n := argInt(m.Args, "fileLength")
+	if n <= 0 {
+		return &peerError{"o aparelho informou um arquivo vazio"}
+	}
+	s.conn.SetReadDeadline(time.Now().Add(replyTimeout + time.Duration(n/20000)*time.Second))
+	if _, err := io.CopyN(w, s.r, n); err != nil {
+		// The stream is out of sync once a transfer breaks off.
+		s.closeLocked()
+		return err
+	}
+	return nil
+}
+
 // Outgoing is one book to transfer.
 type Outgoing struct {
 	Path     string // local file to send
